@@ -1,60 +1,311 @@
-"""Minimal NiceGUI app: load a dataset via Polars and show its columns."""
+"""datasium application UI (NiceGUI).
+
+A polished, lightweight workbench for loading Polars datasets and inspecting
+their schema. Designed so operation panels can be layered on top of the
+``DatasetRegistry`` shared with the UI.
+"""
 
 from __future__ import annotations
 
-import io
+from pathlib import Path
 
-import polars as pl
-from nicegui import ui
+from nicegui import events, ui
+
+from datasium.dataset import Dataset, DatasetRegistry, UnsupportedFormatError
+from datasium.filter import FilterBuilder
+
+_APP_TITLE = "datasium"
+_APP_TAGLINE = "a visual data-workbench · Polars"
+
+
+def _human_dtype(dtype) -> str:
+    return str(dtype)
+
+
+def _format_rows(n: int) -> str:
+    return f"{n:,}"
+
+
+class App:
+    """Owns the registry and renders the workbench."""
+
+    def __init__(self) -> None:
+        self.registry = DatasetRegistry()
+        self.active_name: str | None = None
+        self.selected_columns: list[str] | None = None
+        self.filter_builder: FilterBuilder | None = None
+        self.preview_mode = "selected"
+
+    # ------------------------------------------------------------------ build
+    def build(self) -> None:
+        ui.add_head_html(
+            "<style>"
+            "body { background: var(--nicegui-default-background-color); }"
+            ".ds-card { border-radius: 14px; }"
+            ".ds-mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }"
+            "</style>"
+        )
+
+        with ui.header().classes("items-center justify-between"):
+            with ui.row().classes("items-center gap-3"):
+                ui.icon("table_chart").classes("text-2xl")
+                with ui.column().classes("gap-0"):
+                    ui.label(_APP_TITLE).classes("text-xl font-semibold leading-tight")
+                    ui.label(_APP_TAGLINE).classes("text-xs opacity-60")
+            ui.button(icon="dark_mode", on_click=lambda: ui.run_javascript(
+                "document.body.classList.toggle('dark')"
+            )).props("flat round").tooltip("Toggle theme")
+
+        with ui.row().classes("w-full p-4 gap-4 items-start"):
+            with ui.card().classes("ds-card w-1/3"):
+                self._build_datasets_panel()
+            with ui.card().classes("ds-card flex-grow"):
+                self._build_detail_panel()
+
+    # ---------------------------------------------------------- datasets panel
+    def _build_datasets_panel(self) -> None:
+        ui.label("Datasets").classes("text-lg font-medium")
+        ui.separator()
+        ui.upload(
+            label="Load a dataset",
+            multiple=False,
+            auto_upload=True,
+            on_upload=self._on_upload,
+            on_rejected=lambda: ui.notify(
+                "File rejected", type="negative", position="top",
+            ),
+        ).props('accept=".csv,.tsv,.psv,.parquet,.json,.ndjson,.ipc,.arrow,.feather" '
+                 'color="primary"').classes("w-full")
+
+        ui.separator()
+        self.list_container = ui.column().classes("w-full gap-1")
+
+    # ------------------------------------------------------------- detail panel
+    def _build_detail_panel(self) -> None:
+        self.detail_container = ui.column().classes("w-full")
+        self._render_detail()
+
+    # ----------------------------------------------------------- render helpers
+    def _render_list(self) -> None:
+        self.list_container.clear()
+        if len(self.registry) == 0:
+            with self.list_container:
+                ui.label("No datasets loaded yet.").classes("text-sm opacity-50")
+            return
+        with self.list_container:
+            for ds in self.registry:
+                active = ds.name == self.active_name
+                with ui.button(on_click=lambda _, n=ds.name: self._select(n)) \
+                        .props(f"flat align=left {''if not active else 'outline'}") \
+                        .classes("w-full justify-start"):
+                    ui.icon("description" if not active else "description_outlined")
+                    with ui.column().classes("gap-0 items-start"):
+                        ui.label(ds.name).classes("font-medium")
+                        ui.label(Path(ds.source).name).classes("text-xs opacity-60")
+            ui.space()
+            if self.active_name:
+                ui.button(
+                    "Remove dataset",
+                    icon="delete_outline",
+                    on_click=self._on_remove,
+                ).props("flat color=negative").classes("w-full")
+
+    def _render_detail(self) -> None:
+        self.detail_container.clear()
+        ds = self.registry.get(self.active_name) if self.active_name else None
+        if ds is None:
+            with self.detail_container:
+                with ui.column().classes("w-full items-center justify-center py-16 gap-2"):
+                    ui.icon("inbox", size="48px").classes("opacity-30")
+                    ui.label("Load a dataset to inspect its columns").classes("opacity-60")
+                    ui.label(
+                        "Supported: CSV, TSV, PSV, Parquet, NDJSON, IPC/Arrow"
+                    ).classes("text-xs opacity-40")
+            return
+
+        rows, cols = ds.shape
+        self.selected_columns = None
+        self.preview_mode = "selected"
+        with self.detail_container:
+            with ui.row().classes("items-center justify-between w-full"):
+                with ui.column().classes("gap-0"):
+                    ui.label(ds.name).classes("text-xl font-semibold")
+                    ui.label(ds.source).classes("text-sm opacity-60 ds-mono")
+            with ui.row().classes("gap-4"):
+                self._stat("Columns", str(cols), "view_column")
+                self._stat("Rows", _format_rows(rows), "table_rows")
+                self._stat("Source", Path(ds.source).suffix or "—", "save")
+
+            ui.separator()
+            ui.label("Columns").classes("text-lg font-medium mt-2")
+            schema_cols = [
+                {"name": "idx", "label": "#", "field": "idx",
+                 "align": "left", "sortable": True},
+                {"name": "name", "label": "Name", "field": "name",
+                 "align": "left", "sortable": True},
+                {"name": "dtype", "label": "Type", "field": "dtype",
+                 "align": "left", "sortable": True},
+            ]
+            schema_rows = [
+                {"idx": i + 1, "name": name, "dtype": _human_dtype(dtype)}
+                for i, (name, dtype) in enumerate(ds.columns)
+            ]
+            ui.table(columns=schema_cols, rows=schema_rows, row_key="idx") \
+                .props("flat dense rows-per-page-options=[0]") \
+                .classes("w-full")
+
+            self._build_select_panel(ds)
+            self._build_filter_panel(ds)
+            self._build_preview_panel(ds)
+
+    @staticmethod
+    def _stat(label: str, value: str, icon: str) -> None:
+        with ui.column().classes("gap-1 items-start"):
+            with ui.row().classes("items-center gap-1 opacity-70"):
+                ui.icon(icon, size="16px")
+                ui.label(label).classes("text-xs")
+            ui.label(value).classes("text-lg font-medium ds-mono")
+
+    # ---------------------------------------------------------- selection panel
+    def _build_select_panel(self, ds: Dataset) -> None:
+        ui.separator()
+        ui.label("Columns to show").classes("text-lg font-medium mt-2")
+        ui.label("Leave empty to use all columns.").classes("text-xs opacity-50")
+        names = [n for n, _ in ds.columns]
+        self.col_select = ui.select(
+            options={n: n for n in names},
+            multiple=True,
+            value=list(self.selected_columns) if self.selected_columns else [],
+            clearable=True,
+            label="Columns",
+            on_change=lambda e: self._on_columns_change(e.value),
+        ).props("dense outlined use-chips").classes("w-full")
+
+    def _on_columns_change(self, value) -> None:
+        self.selected_columns = list(value) if value else None
+        self._run_preview()
+
+    # -------------------------------------------------------------- filter panel
+    def _build_filter_panel(self, ds: Dataset) -> None:
+        ui.separator()
+        ui.label("Row filters").classes("text-lg font-medium mt-2")
+        ui.label(
+            "Boolean expressions applied with df.filter(). "
+            "Combined with AND (all) or OR (any)."
+        ).classes("text-xs opacity-50")
+        fb_container = ui.column().classes("w-full")
+        self.filter_builder = FilterBuilder(
+            ds.columns, fb_container, combinator="all",
+        )
+        self.filter_builder.on_change(self._run_preview)
+
+    # -------------------------------------------------------------- preview panel
+    def _build_preview_panel(self, ds: Dataset) -> None:
+        ui.separator()
+        with ui.row().classes("w-full items-center justify-between mt-2"):
+            ui.label("Result preview").classes("text-lg font-medium")
+            with ui.row().classes("items-center gap-2"):
+                self.mode_toggle = ui.toggle(
+                    {"selected": "Selected columns × rows",
+                     "rows-only": "All columns × rows"},
+                    value=self.preview_mode,
+                    on_change=lambda e: self._on_mode_change(e.value),
+                ).props("dense")
+                ui.button("Preview", icon="play_arrow", on_click=lambda _=None: self._run_preview()) \
+                    .props("unelevated color=primary dense")
+        self.preview_meta = ui.label("").classes("text-xs opacity-50")
+        self.preview_container = ui.column().classes("w-full")
+        self._run_preview()
+
+    def _on_mode_change(self, value) -> None:
+        self.preview_mode = value or "selected"
+        self._run_preview()
+
+    def _run_preview(self) -> None:
+        if self.preview_container is None:
+            return
+        ds = self.registry.get(self.active_name) if self.active_name else None
+        if ds is None:
+            return
+        try:
+            lf = ds.lazyframe
+            expr = self.filter_builder.build_expr() if self.filter_builder else None
+            if hasattr(self, "mode_toggle"):
+                self.mode_toggle.set_visibility(self.selected_columns is not None)
+            if expr is not None:
+                lf = lf.filter(expr)
+            if self.preview_mode == "selected" and self.selected_columns:
+                lf = lf.select(self.selected_columns)
+            df = lf.collect()
+        except ValueError as err:
+            ui.notify(f"Filter error: {err}", type="warning", position="top")
+            self.preview_meta.set_text("Filter not applied.")
+            return
+        except Exception as err:
+            ui.notify(f"Could not build result: {err}", type="negative", position="top")
+            self.preview_meta.set_text("Error.")
+            return
+
+        n_rows, n_cols = df.shape
+        col_desc = (
+            f"{n_cols} column{'s' if n_cols != 1 else ''}"
+            if self.preview_mode == "selected" and self.selected_columns
+            else f"all {n_cols} column{'s' if n_cols != 1 else ''}"
+        )
+        filt = " with filters" if (self.filter_builder and self.filter_builder.rows) else ""
+        self.preview_meta.set_text(f"{n_rows:,} row(s) · {col_desc}{filt}")
+
+        self.preview_container.clear()
+        if df.width == 0:
+            with self.preview_container:
+                ui.label("No columns selected.").classes("text-sm opacity-50")
+            return
+        with self.preview_container:
+            columns = [
+                {"name": c, "label": f"{c}\n{_human_dtype(df.schema[c])}", "field": c,
+                 "align": "left", "sortable": True}
+                for c in df.columns
+            ]
+            rows = df.rows(named=True)
+            ui.table(columns=columns, rows=rows, row_key=df.columns[0]) \
+                .props("flat dense") \
+                .classes("w-full")
+
+    # ----------------------------------------------------------------- handlers
+    def _on_upload(self, e: events.UploadEventArguments) -> None:
+        try:
+            raw = e.content.read()
+            ds = self.registry.load(e.name, raw)
+            self.active_name = ds.name
+            self._render_list()
+            self._render_detail()
+            ui.notify(f"Loaded {ds.name}", type="positive", position="top")
+        except UnsupportedFormatError as err:
+            ui.notify(str(err), type="warning", position="top")
+        except Exception as err:  # polars read errors, malformed files, ...
+            ui.notify(f"Could not read dataset: {err}", type="negative", position="top")
+
+    def _on_remove(self) -> None:
+        self.registry.remove(self.active_name)  # type: ignore[arg-type]
+        self.active_name = next(iter(self.registry.names()), None)
+        self._render_list()
+        self._render_detail()
+
+    def _select(self, name: str) -> None:
+        self.active_name = name
+        self._render_list()
+        self._render_detail()
 
 
 @ui.page("/")
 def _page() -> None:
-    ui.label("Datasium").classes("text-2xl font-bold")
-    status = ui.label()
-    columns_list = ui.column().classes("w-full gap-1")
-
-    async def handle_upload(e) -> None:
-        status.text = f"Loading: {e.name}"
-        data = e.content.read()
-        try:
-            df = _read_bytes(e.name, data)
-        except Exception as ex:
-            status.text = f"Error: {ex}"
-            columns_list.clear()
-            return
-        status.text = f"{e.name}  —  {df.height} rows × {df.width} cols"
-        columns_list.clear()
-        with columns_list:
-            for col_name, dtype in zip(df.columns, df.dtypes):
-                ui.label(f"{col_name}  ({dtype})")
-        e.content.close()
-
-    ui.upload(
-        on_upload=handle_upload,
-        auto_upload=True,
-        multiple=False,
-        label="Load Dataset",
-    ).props("accept=.csv,.parquet,.ndjson,.json,.ipc,.arrow")
-
-
-def _read_bytes(name: str, data: bytes) -> pl.DataFrame:
-    lower = name.lower()
-    source = io.BytesIO(data)
-    if lower.endswith(".csv"):
-        return pl.read_csv(source)
-    if lower.endswith(".parquet"):
-        return pl.read_parquet(source)
-    if lower.endswith(".ndjson") or lower.endswith(".json"):
-        return pl.read_ndjson(source)
-    if lower.endswith(".ipc") or lower.endswith(".arrow"):
-        return pl.read_ipc(source)
-    raise ValueError(f"Unsupported file format: {name}")
+    ui.page_title(_APP_TITLE)
+    App().build()
 
 
 def main() -> None:
-    ui.run(host="127.0.0.1", port=8080, title="Datasium", reload=False)
-
-
-if __name__ in {"__main__", "__mp_main__"}:
-    main()
+    ui.run(
+        reload=False,
+        title=_APP_TITLE,
+        port=8080,
+    )

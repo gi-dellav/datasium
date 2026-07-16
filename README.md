@@ -1,37 +1,36 @@
 # datasium
 
 The powerhouse for intuitive data processing — a visual data-workbench built on
-**Polars** (lazy pipelines) and **Flet** (cross-platform UI). Implements
-**Phase 1 & 2** of `PLAN.md`.
+**Polars** (lazy pipelines) and **NiceGUI** (browser/desktop UI).
 
 ## Run
 
 ```bash
-uv run datasium                 # desktop app
+uv run datasium
 ```
 
-Load a CSV (try `sample.csv`) via the file-open button, pick actions from the
-left palette to build a pipeline, edit parameters in the right panel, and
-Run / Preview in the bottom tabs. Undo/redo via the app bar.
+Open <http://localhost:8080> (or the native window if run with `--native`),
+load a dataset (try `sample.csv`) via the upload, and inspect its columns,
+types, and shape in the detail panel. Multiple datasets can be loaded and
+switched between in the sidebar.
 
-## Layout
+Per active dataset you can:
 
-- **Left panel** — searchable action palette grouped by category + dataset list.
-- **Center** — horizontal pipeline editor (source / action node cards / output)
-  with per-node move/duplicate/delete, plus preview tabs (Selected node, Final
-  output, Schema, Query plan, Console).
-- **Right panel** — dynamic parameter form generated from the action's schema
-  and a live validation list.
+- **Select columns** to project (leave empty = all columns).
+- **Define row filters** via a reusable filter builder: pick a column, an
+  operator (eq, >, contains, is in, is null, …) and a value; combine rows
+  with **Match ALL** (`and`) or **Match ANY** (`or`). Filters compile to a
+  Polars expression used with `df.filter`.
+- **Preview the result** as either *Selected columns × selected rows* or
+  *All columns × selected rows*, with a live row/column count.
 
 ## Architecture
 
 | Module | Responsibility |
 |---|---|
-| `datasium.expression` | AST-whitelisted Polars expression evaluator |
-| `datasium.actions` | `Action` / `ActionParam` / `ParamType` framework + built-in catalog |
-| `datasium.dataset` | `DatasetRegistry` of named `LazyFrame` sources |
-| `datasium.pipeline` | `Pipeline`, `PipelineNode`, executor, `SnapshotStack` undo/redo |
-| `datasium.ui.*` | Flet panels + `AppController` |
+| `datasium.dataset` | `Dataset` / `DatasetRegistry` of named `LazyFrame` sources, format readers |
+| `datasium.filter` | Reusable `FilterBuilder` component producing Polars `df.filter` expressions |
+| `datasium.ui.app` | NiceGUI workbench: loader, schema view, column select, row filters, result preview |
 
 ## Test
 
