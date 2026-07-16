@@ -56,36 +56,42 @@ class App:
                 "document.body.classList.toggle('dark')"
             )).props("flat round").tooltip("Toggle theme")
 
-        with ui.row().classes("w-full p-4 gap-4 items-start"):
-            with ui.card().classes("ds-card w-1/3"):
-                self._build_datasets_panel()
-            with ui.card().classes("ds-card flex-grow"):
-                self._build_detail_panel()
+        with ui.tabs() as self.tabs:
+            ui.tab("Load", icon="upload_file")
+            ui.tab("Select", icon="filter_alt")
+            ui.tab("View", icon="visibility")
 
-    # ---------------------------------------------------------- datasets panel
-    def _build_datasets_panel(self) -> None:
-        ui.label("Datasets").classes("text-lg font-medium")
-        ui.separator()
-        ui.upload(
-            label="Load a dataset",
-            multiple=False,
-            auto_upload=True,
-            on_upload=self._on_upload,
-            on_rejected=lambda: ui.notify(
-                "File rejected", type="negative", position="top",
-            ),
-        ).props('accept=".csv,.tsv,.psv,.parquet,.json,.ndjson,.ipc,.arrow,.feather" '
-                 'color="primary"').classes("w-full")
+        with ui.tab_panels(self.tabs, value="Load").classes("w-full"):
+            with ui.tab_panel("Load"):
+                self.load_container = ui.column().classes("w-full p-4")
+                self._render_load_tab()
+            with ui.tab_panel("Select"):
+                self.select_container = ui.column().classes("w-full p-4")
+                self._render_select_tab()
+            with ui.tab_panel("View"):
+                self.view_container = ui.column().classes("w-full p-4")
+                self._render_view_tab()
 
-        ui.separator()
-        self.list_container = ui.column().classes("w-full gap-1")
+    # ---------------------------------------------------------------- load tab
+    def _render_load_tab(self) -> None:
+        self.load_container.clear()
+        with self.load_container:
+            ui.label("Load dataset").classes("text-lg font-medium")
+            ui.separator()
+            ui.upload(
+                label="Choose a file",
+                multiple=False,
+                auto_upload=True,
+                on_upload=self._on_upload,
+                on_rejected=lambda: ui.notify(
+                    "File rejected", type="negative", position="top",
+                ),
+            ).props('accept=".csv,.tsv,.psv,.parquet,.json,.ndjson,.ipc,.arrow,.feather" '
+                     'color="primary"').classes("w-full")
+            ui.separator()
+            self.list_container = ui.column().classes("w-full gap-1")
+            self._render_list()
 
-    # ------------------------------------------------------------- detail panel
-    def _build_detail_panel(self) -> None:
-        self.detail_container = ui.column().classes("w-full")
-        self._render_detail()
-
-    # ----------------------------------------------------------- render helpers
     def _render_list(self) -> None:
         self.list_container.clear()
         if len(self.registry) == 0:
@@ -102,31 +108,27 @@ class App:
                     with ui.column().classes("gap-0 items-start"):
                         ui.label(ds.name).classes("font-medium")
                         ui.label(Path(ds.source).name).classes("text-xs opacity-60")
-            ui.space()
             if self.active_name:
+                ui.separator()
                 ui.button(
                     "Remove dataset",
                     icon="delete_outline",
                     on_click=self._on_remove,
                 ).props("flat color=negative").classes("w-full")
 
-    def _render_detail(self) -> None:
-        self.detail_container.clear()
+    # -------------------------------------------------------------- select tab
+    def _render_select_tab(self) -> None:
+        self.select_container.clear()
         ds = self.registry.get(self.active_name) if self.active_name else None
         if ds is None:
-            with self.detail_container:
+            with self.select_container:
                 with ui.column().classes("w-full items-center justify-center py-16 gap-2"):
                     ui.icon("inbox", size="48px").classes("opacity-30")
-                    ui.label("Load a dataset to inspect its columns").classes("opacity-60")
-                    ui.label(
-                        "Supported: CSV, TSV, PSV, Parquet, NDJSON, IPC/Arrow"
-                    ).classes("text-xs opacity-40")
+                    ui.label("Load a dataset first").classes("opacity-60")
             return
 
         rows, cols = ds.shape
-        self.selected_columns = None
-        self.preview_mode = "selected"
-        with self.detail_container:
+        with self.select_container:
             with ui.row().classes("items-center justify-between w-full"):
                 with ui.column().classes("gap-0"):
                     ui.label(ds.name).classes("text-xl font-semibold")
@@ -154,8 +156,21 @@ class App:
                 .props("flat dense rows-per-page-options=[0]") \
                 .classes("w-full")
 
-            self._build_select_panel(ds)
             self._build_filter_panel(ds)
+
+    # ---------------------------------------------------------------- view tab
+    def _render_view_tab(self) -> None:
+        self.view_container.clear()
+        ds = self.registry.get(self.active_name) if self.active_name else None
+        if ds is None:
+            with self.view_container:
+                with ui.column().classes("w-full items-center justify-center py-16 gap-2"):
+                    ui.icon("visibility", size="48px").classes("opacity-30")
+                    ui.label("Load a dataset first").classes("opacity-60")
+            return
+
+        with self.view_container:
+            self._build_select_panel(ds)
             self._build_preview_panel(ds)
 
     @staticmethod
@@ -278,7 +293,9 @@ class App:
             ds = self.registry.load(e.name, raw)
             self.active_name = ds.name
             self._render_list()
-            self._render_detail()
+            self._render_select_tab()
+            self._render_view_tab()
+            self.tabs.set_value("Select")
             ui.notify(f"Loaded {ds.name}", type="positive", position="top")
         except UnsupportedFormatError as err:
             ui.notify(str(err), type="warning", position="top")
@@ -289,12 +306,17 @@ class App:
         self.registry.remove(self.active_name)  # type: ignore[arg-type]
         self.active_name = next(iter(self.registry.names()), None)
         self._render_list()
-        self._render_detail()
+        self._render_select_tab()
+        self._render_view_tab()
 
     def _select(self, name: str) -> None:
         self.active_name = name
+        self.selected_columns = None
+        self.preview_mode = "selected"
         self._render_list()
-        self._render_detail()
+        self._render_select_tab()
+        self._render_view_tab()
+        self.tabs.set_value("Select")
 
 
 @ui.page("/")
