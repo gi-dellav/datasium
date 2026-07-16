@@ -11,6 +11,7 @@ from pathlib import Path
 
 from nicegui import events, ui
 
+from datasium.calculate import Calculator, _is_numeric as _is_numeric_dtype, compute_stat
 from datasium.dataset import Dataset, DatasetRegistry, UnsupportedFormatError
 from datasium.filter import FilterBuilder
 
@@ -35,6 +36,7 @@ class App:
         self.selected_columns: list[str] | None = None
         self.filter_builder: FilterBuilder | None = None
         self.preview_mode = "selected"
+        self.calculator: Calculator | None = None
 
     # ------------------------------------------------------------------ build
     def build(self) -> None:
@@ -60,6 +62,7 @@ class App:
             ui.tab("Load", icon="upload_file")
             ui.tab("Select", icon="filter_alt")
             ui.tab("View", icon="visibility")
+            ui.tab("Calculate", icon="functions")
 
         with ui.tab_panels(self.tabs, value="Load").classes("w-full"):
             with ui.tab_panel("Load"):
@@ -71,6 +74,9 @@ class App:
             with ui.tab_panel("View"):
                 self.view_container = ui.column().classes("w-full p-4")
                 self._render_view_tab()
+            with ui.tab_panel("Calculate"):
+                self.calc_container = ui.column().classes("w-full p-4")
+                self._render_calculate_tab()
 
     # ---------------------------------------------------------------- load tab
     def _render_load_tab(self) -> None:
@@ -172,6 +178,65 @@ class App:
         with self.view_container:
             self._build_select_panel(ds)
             self._build_preview_panel(ds)
+
+    # ------------------------------------------------------------- calculate tab
+    def _render_calculate_tab(self) -> None:
+        self.calc_container.clear()
+        ds = self.registry.get(self.active_name) if self.active_name else None
+        if ds is None:
+            with self.calc_container:
+                with ui.column().classes("w-full items-center justify-center py-16 gap-2"):
+                    ui.icon("functions", size="48px").classes("opacity-30")
+                    ui.label("Load a dataset first").classes("opacity-60")
+            return
+
+        with self.calc_container:
+            with ui.row().classes("items-center justify-between w-full"):
+                with ui.column().classes("gap-0"):
+                    ui.label("Calculate").classes("text-lg font-medium")
+                    desc = "Run a statistic over the rows that pass the filters "
+                    desc += "defined in the Select tab (every row when none set)."
+                    ui.label(desc).classes("text-xs opacity-50")
+            numeric = [(n, d) for n, d in ds.columns if _is_numeric_dtype(d)]
+            if not numeric:
+                ui.label("This dataset has no numeric columns.").classes(
+                    "text-sm opacity-50 mt-2")
+                return
+            self.calc_panel = ui.column().classes("w-full gap-1 mt-2")
+            self.calculator = Calculator(
+                self.calc_panel, ds.columns, self._run_calculate,
+            )
+            self._run_calculate()
+
+    def _run_calculate(self) -> None:
+        if self.calculator is None:
+            return
+        ds = self.registry.get(self.active_name) if self.active_name else None
+        if ds is None:
+            return
+        col = self.calculator.column
+        op = self.calculator.operation
+        if col is None or op is None:
+            self.calculator.set_error("select a column and operation")
+            return
+        try:
+            lf = ds.lazyframe
+            expr = self.filter_builder.build_expr() if self.filter_builder else None
+            if expr is not None:
+                lf = lf.filter(expr)
+            df = lf.select(col).collect()
+            series = df[col]
+            value = compute_stat(series, op, self.calculator.threshold)
+        except ValueError as err:
+            self.calculator.set_error(str(err))
+            ui.notify(str(err), type="warning", position="top")
+            return
+        except Exception as err:
+            msg = f"Could not compute: {err}"
+            self.calculator.set_error(msg)
+            ui.notify(msg, type="negative", position="top")
+            return
+        self.calculator.set_result(value)
 
     @staticmethod
     def _stat(label: str, value: str, icon: str) -> None:
@@ -286,6 +351,9 @@ class App:
                 .props("flat dense") \
                 .classes("w-full")
 
+        if self.calculator is not None:
+            self._run_calculate()
+
     # ----------------------------------------------------------------- handlers
     def _on_upload(self, e: events.UploadEventArguments) -> None:
         try:
@@ -295,6 +363,7 @@ class App:
             self._render_list()
             self._render_select_tab()
             self._render_view_tab()
+            self._render_calculate_tab()
             self.tabs.set_value("Select")
             ui.notify(f"Loaded {ds.name}", type="positive", position="top")
         except UnsupportedFormatError as err:
@@ -308,6 +377,7 @@ class App:
         self._render_list()
         self._render_select_tab()
         self._render_view_tab()
+        self._render_calculate_tab()
 
     def _select(self, name: str) -> None:
         self.active_name = name
@@ -316,6 +386,7 @@ class App:
         self._render_list()
         self._render_select_tab()
         self._render_view_tab()
+        self._render_calculate_tab()
         self.tabs.set_value("Select")
 
 
