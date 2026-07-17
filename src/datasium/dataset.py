@@ -84,6 +84,15 @@ class DatasetRegistry:
     def remove(self, name: str) -> None:
         self._items.pop(name, None)
 
+    def replace(self, name: str, lazyframe: pl.LazyFrame) -> Dataset:
+        """Swap a dataset's LazyFrame in place, keeping its name and source."""
+        existing = self._items.get(name)
+        if existing is None:
+            raise KeyError(f"no dataset named {name!r}")
+        updated = Dataset(name=name, source=existing.source, lazyframe=lazyframe)
+        self._items[name] = updated
+        return updated
+
     def clear(self) -> None:
         self._items.clear()
 

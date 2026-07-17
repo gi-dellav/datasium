@@ -15,6 +15,7 @@ from datasium.calculate import Calculator, _is_numeric as _is_numeric_dtype, com
 from datasium.dataset import Dataset, DatasetRegistry, UnsupportedFormatError
 from datasium.filter import FilterBuilder
 from datasium.query import QueryEntry, QueryPanel, run_sql
+from datasium.remove import RemovePanel, apply_removal
 
 _APP_TITLE = "datasium"
 _APP_TAGLINE = "a visual data-workbench · Polars"
@@ -40,6 +41,10 @@ class App:
         self.calculator: Calculator | None = None
         self.query_history: list[QueryEntry] = []
         self.query_panel: QueryPanel | None = None
+        self.remove_panel: RemovePanel | None = None
+        self.remove_meta = None
+        self.remove_preview_container = None
+        self._remove_preview = None
 
     # ------------------------------------------------------------------ build
     def build(self) -> None:
@@ -65,6 +70,7 @@ class App:
             ui.tab("Load", icon="upload_file")
             ui.tab("Select", icon="filter_alt")
             ui.tab("View", icon="visibility")
+            ui.tab("Remove", icon="delete_sweep")
             ui.tab("Calculate", icon="functions")
             ui.tab("Query", icon="query_stats")
 
@@ -78,6 +84,9 @@ class App:
             with ui.tab_panel("View"):
                 self.view_container = ui.column().classes("w-full p-4")
                 self._render_view_tab()
+            with ui.tab_panel("Remove"):
+                self.remove_container = ui.column().classes("w-full p-4")
+                self._render_remove_tab()
             with ui.tab_panel("Calculate"):
                 self.calc_container = ui.column().classes("w-full p-4")
                 self._render_calculate_tab()
@@ -185,6 +194,117 @@ class App:
         with self.view_container:
             self._build_select_panel(ds)
             self._build_preview_panel(ds)
+
+    # -------------------------------------------------------------- remove tab
+    def _render_remove_tab(self) -> None:
+        self.remove_container.clear()
+        self.remove_panel = None
+        self.remove_meta = None
+        self.remove_preview_container = None
+        self._remove_preview = None
+        ds = self.registry.get(self.active_name) if self.active_name else None
+        if ds is None:
+            with self.remove_container:
+                with ui.column().classes("w-full items-center justify-center py-16 gap-2"):
+                    ui.icon("delete_sweep", size="48px").classes("opacity-30")
+                    ui.label("Load a dataset first").classes("opacity-60")
+            return
+
+        with self.remove_container:
+            with ui.row().classes("items-center justify-between w-full"):
+                with ui.column().classes("gap-0"):
+                    ui.label("Remove").classes("text-lg font-medium")
+                    ui.label(
+                        "Drop columns and/or rows from the active dataset."
+                    ).classes("text-xs opacity-50")
+            self.remove_panel = RemovePanel(
+                self.remove_container, ds.columns,
+                self._run_remove_preview, self._apply_remove,
+            )
+            self.remove_panel.set_selection_expr_provider(
+                lambda: self.filter_builder.build_expr() if self.filter_builder else None,
+            )
+            self.remove_meta = ui.label("").classes("text-xs opacity-50")
+            self.remove_preview_container = ui.column().classes("w-full")
+            self._run_remove_preview()
+
+    def _run_remove_preview(self) -> None:
+        if self.remove_preview_container is None or self.remove_panel is None:
+            return
+        ds = self.registry.get(self.active_name) if self.active_name else None
+        if ds is None:
+            return
+        before_rows, before_cols = ds.shape
+        try:
+            new_lf = apply_removal(ds.lazyframe, self.remove_panel.spec)
+            df = new_lf.collect()
+        except ValueError as err:
+            self._remove_preview = None
+            ui.notify(str(err), type="warning", position="top")
+            if self.remove_meta is not None:
+                self.remove_meta.set_text("Removal not applied.")
+            self.remove_preview_container.clear()
+            return
+        except Exception as err:
+            self._remove_preview = None
+            ui.notify(f"Could not build removal: {err}", type="negative", position="top")
+            if self.remove_meta is not None:
+                self.remove_meta.set_text("Error.")
+            self.remove_preview_container.clear()
+            return
+
+        self._remove_preview = df
+        after_rows, after_cols = df.shape
+        d_rows = before_rows - after_rows
+        d_cols = before_cols - after_cols
+        parts = []
+        if d_rows:
+            parts.append(f"{d_rows:,} row(s)")
+        if d_cols:
+            parts.append(f"{d_cols:,} column(s)")
+        summary = " and ".join(parts) + " will be removed" if parts else "nothing to remove"
+        if self.remove_meta is not None:
+            self.remove_meta.set_text(
+                f"Result: {after_rows:,} row(s) · {after_cols:,} column(s) — {summary}."
+            )
+
+        self.remove_preview_container.clear()
+        with self.remove_preview_container:
+            if df.width == 0:
+                ui.label("No columns remain.").classes("text-sm opacity-50")
+                return
+            columns = [
+                {"name": c, "label": f"{c}\n{_human_dtype(df.schema[c])}", "field": c,
+                 "align": "left", "sortable": True}
+                for c in df.columns
+            ]
+            rows = df.rows(named=True)
+            ui.table(columns=columns, rows=rows, row_key=df.columns[0]) \
+                .props("flat dense") \
+                .classes("w-full")
+
+    def _apply_remove(self) -> None:
+        ds = self.registry.get(self.active_name) if self.active_name else None
+        if ds is None or self._remove_preview is None:
+            ui.notify("Preview the removal first", type="warning", position="top")
+            return
+        try:
+            new_lf = apply_removal(ds.lazyframe, self.remove_panel.spec)  # type: ignore[union-attr]
+        except ValueError as err:
+            ui.notify(str(err), type="warning", position="top")
+            return
+        self.registry.replace(self.active_name, new_lf)
+        ds_after = self.registry.get(self.active_name)
+        ar, ac = ds_after.shape if ds_after is not None else (0, 0)
+        self.selected_columns = None
+        self._render_list()
+        self._render_select_tab()
+        self._render_view_tab()
+        self._render_remove_tab()
+        self._render_calculate_tab()
+        self._render_query_tab()
+        ui.notify(f"Removed · now {ar:,} row(s) × {ac} column(s)",
+                  type="positive", position="top")
 
     # ------------------------------------------------------------- calculate tab
     def _render_calculate_tab(self) -> None:
@@ -407,6 +527,7 @@ class App:
             self._render_list()
             self._render_select_tab()
             self._render_view_tab()
+            self._render_remove_tab()
             self._render_calculate_tab()
             self._render_query_tab()
             self.tabs.set_value("Select")
@@ -422,6 +543,7 @@ class App:
         self._render_list()
         self._render_select_tab()
         self._render_view_tab()
+        self._render_remove_tab()
         self._render_calculate_tab()
         self._render_query_tab()
 
@@ -432,6 +554,7 @@ class App:
         self._render_list()
         self._render_select_tab()
         self._render_view_tab()
+        self._render_remove_tab()
         self._render_calculate_tab()
         self._render_query_tab()
         self.tabs.set_value("Select")
