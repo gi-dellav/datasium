@@ -15,7 +15,17 @@ from datasium.calculate import Calculator, _is_numeric as _is_numeric_dtype, com
 from datasium.dataset import Dataset, DatasetRegistry, UnsupportedFormatError
 from datasium.filter import FilterBuilder
 from datasium.query import QueryEntry, QueryPanel, run_sql
+from datasium.edit import (
+    EditPanel,
+    add_column as _edit_add_column,
+    add_row as _edit_add_row,
+    cast_column as _edit_cast_column,
+    set_cell_by_index as _edit_set_cell_by_index,
+    set_cell_by_key as _edit_set_cell_by_key,
+)
 from datasium.remove import RemovePanel, apply_removal
+
+import polars as pl
 
 _APP_TITLE = "datasium"
 _APP_TAGLINE = "a visual data-workbench · Polars"
@@ -45,6 +55,7 @@ class App:
         self.remove_meta = None
         self.remove_preview_container = None
         self._remove_preview = None
+        self.edit_panel: EditPanel | None = None
 
     # ------------------------------------------------------------------ build
     def build(self) -> None:
@@ -70,9 +81,10 @@ class App:
             ui.tab("Load", icon="upload_file")
             ui.tab("Select", icon="filter_alt")
             ui.tab("View", icon="visibility")
+            ui.tab("Edit", icon="edit")
+            ui.tab("Query", icon="query_stats")
             ui.tab("Remove", icon="delete_sweep")
             ui.tab("Calculate", icon="functions")
-            ui.tab("Query", icon="query_stats")
 
         with ui.tab_panels(self.tabs, value="Load").classes("w-full"):
             with ui.tab_panel("Load"):
@@ -84,15 +96,18 @@ class App:
             with ui.tab_panel("View"):
                 self.view_container = ui.column().classes("w-full p-4")
                 self._render_view_tab()
+            with ui.tab_panel("Edit"):
+                self.edit_container = ui.column().classes("w-full p-4")
+                self._render_edit_tab()
+            with ui.tab_panel("Query"):
+                self.query_container = ui.column().classes("w-full p-4")
+                self._render_query_tab()
             with ui.tab_panel("Remove"):
                 self.remove_container = ui.column().classes("w-full p-4")
                 self._render_remove_tab()
             with ui.tab_panel("Calculate"):
                 self.calc_container = ui.column().classes("w-full p-4")
                 self._render_calculate_tab()
-            with ui.tab_panel("Query"):
-                self.query_container = ui.column().classes("w-full p-4")
-                self._render_query_tab()
 
     # ---------------------------------------------------------------- load tab
     def _render_load_tab(self) -> None:
@@ -301,10 +316,138 @@ class App:
         self._render_select_tab()
         self._render_view_tab()
         self._render_remove_tab()
+        self._render_edit_tab()
         self._render_calculate_tab()
         self._render_query_tab()
         ui.notify(f"Removed · now {ar:,} row(s) × {ac} column(s)",
                   type="positive", position="top")
+
+    # ---------------------------------------------------------------- edit tab
+    def _render_edit_tab(self) -> None:
+        self.edit_container.clear()
+        self.edit_panel = None
+        ds = self.registry.get(self.active_name) if self.active_name else None
+        if ds is None:
+            with self.edit_container:
+                with ui.column().classes("w-full items-center justify-center py-16 gap-2"):
+                    ui.icon("edit", size="48px").classes("opacity-30")
+                    ui.label("Load a dataset first").classes("opacity-60")
+            return
+
+        with self.edit_container:
+            with ui.row().classes("items-center justify-between w-full"):
+                with ui.column().classes("gap-0"):
+                    ui.label("Edit").classes("text-lg font-medium")
+                    ui.label(
+                        "Cast column types, add columns/rows, and edit cells."
+                    ).classes("text-xs opacity-50")
+            self.edit_panel = EditPanel(
+                self.edit_container, ds.columns,
+                self._on_edit_cast,
+                self._on_edit_add_column,
+                self._on_edit_add_row,
+                self._on_edit_edit_row,
+            )
+
+    # -- edit handlers ----------------------------------------------------
+    def _apply_edit(self, new_lf: pl.LazyFrame, label: str) -> bool:
+        ds = self.registry.get(self.active_name) if self.active_name else None
+        if ds is None:
+            ui.notify("No active dataset", type="warning", position="top")
+            return False
+        try:
+            new_lf.collect_schema()
+            df = new_lf.collect()
+        except Exception as err:  # dtype cast failures, bad literals, ...
+            ui.notify(f"Could not apply edit: {err}", type="negative", position="top")
+            return False
+        self.registry.replace(self.active_name, df.lazy())
+        self.selected_columns = None
+        self._render_list()
+        self._render_select_tab()
+        self._render_view_tab()
+        self._render_remove_tab()
+        self._render_edit_tab()
+        self._render_calculate_tab()
+        self._render_query_tab()
+        ar, ac = df.shape
+        ui.notify(f"{label} · now {ar:,} row(s) × {ac} column(s)",
+                  type="positive", position="top")
+        return True
+
+    def _on_edit_cast(self, column: str, dtype_key: str) -> None:
+        ds = self.registry.get(self.active_name) if self.active_name else None
+        if ds is None or column in (None, "—"):
+            ui.notify("select a column", type="warning", position="top")
+            return
+        from datasium.edit import DTYPE_BY_KEY
+        if dtype_key not in DTYPE_BY_KEY:
+            ui.notify("select a target dtype", type="warning", position="top")
+            return
+        try:
+            new_lf = _edit_cast_column(ds.lazyframe, column, DTYPE_BY_KEY[dtype_key])
+        except ValueError as err:
+            ui.notify(str(err), type="warning", position="top")
+            return
+        self._apply_edit(new_lf, f"Cast {column} → {dtype_key}")
+
+    def _on_edit_add_column(self, name: str, dtype_key: str, fill: str) -> None:
+        ds = self.registry.get(self.active_name) if self.active_name else None
+        if ds is None:
+            ui.notify("No active dataset", type="warning", position="top")
+            return
+        from datasium.edit import DTYPE_BY_KEY
+        if dtype_key not in DTYPE_BY_KEY:
+            ui.notify("select a column type", type="warning", position="top")
+            return
+        try:
+            new_lf = _edit_add_column(ds.lazyframe, name, DTYPE_BY_KEY[dtype_key], fill)
+        except ValueError as err:
+            ui.notify(str(err), type="warning", position="top")
+            return
+        self._apply_edit(new_lf, f"Added column {name!r}")
+
+    def _on_edit_add_row(self, values: dict[str, str]) -> None:
+        ds = self.registry.get(self.active_name) if self.active_name else None
+        if ds is None:
+            ui.notify("No active dataset", type="warning", position="top")
+            return
+        try:
+            new_lf = _edit_add_row(ds.lazyframe, values)
+        except ValueError as err:
+            ui.notify(str(err), type="warning", position="top")
+            return
+        self._apply_edit(new_lf, "Added row")
+
+    def _on_edit_edit_row(
+        self,
+        mode: str,
+        index: object,
+        key_cols: list[str],
+        key_vals: list[str],
+        column: str,
+        new_raw: str,
+    ) -> None:
+        ds = self.registry.get(self.active_name) if self.active_name else None
+        if ds is None or column in (None, "—"):
+            ui.notify("select a target column", type="warning", position="top")
+            return
+        schema = dict(ds.lazyframe.collect_schema().items())
+        dtype = schema.get(column)
+        if dtype is None:
+            ui.notify(f"column {column!r} not found", type="warning", position="top")
+            return
+        try:
+            if mode == "index":
+                new_lf = _edit_set_cell_by_index(
+                    ds.lazyframe, int(index), column, new_raw, dtype)
+            else:
+                new_lf = _edit_set_cell_by_key(
+                    ds.lazyframe, key_cols, key_vals, column, new_raw, dtype)
+        except ValueError as err:
+            ui.notify(str(err), type="warning", position="top")
+            return
+        self._apply_edit(new_lf, f"Edited {column}")
 
     # ------------------------------------------------------------- calculate tab
     def _render_calculate_tab(self) -> None:
@@ -528,6 +671,7 @@ class App:
             self._render_select_tab()
             self._render_view_tab()
             self._render_remove_tab()
+            self._render_edit_tab()
             self._render_calculate_tab()
             self._render_query_tab()
             self.tabs.set_value("Select")
@@ -544,6 +688,7 @@ class App:
         self._render_select_tab()
         self._render_view_tab()
         self._render_remove_tab()
+        self._render_edit_tab()
         self._render_calculate_tab()
         self._render_query_tab()
 
@@ -555,6 +700,7 @@ class App:
         self._render_select_tab()
         self._render_view_tab()
         self._render_remove_tab()
+        self._render_edit_tab()
         self._render_calculate_tab()
         self._render_query_tab()
         self.tabs.set_value("Select")
