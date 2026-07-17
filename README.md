@@ -23,6 +23,10 @@ Per active dataset you can:
   Polars expression used with `df.filter`.
 - **Preview the result** as either *Selected columns × selected rows* or
   *All columns × selected rows*, with a live row/column count.
+- **Run SQL** against the active DataFrame via the Query tab (table name
+  `self`, e.g. `SELECT * FROM self WHERE age > 20`). Executed queries are
+  kept in a history list shown below the input, each with its result (or
+  error) and a re-run button.
 
 ## Architecture
 
@@ -30,7 +34,8 @@ Per active dataset you can:
 |---|---|
 | `datasium.dataset` | `Dataset` / `DatasetRegistry` of named `LazyFrame` sources, format readers |
 | `datasium.filter` | Reusable `FilterBuilder` component producing Polars `df.filter` expressions |
-| `datasium.ui.app` | NiceGUI workbench: loader, schema view, column select, row filters, result preview |
+| `datasium.query` | SQL query component running `polars.DataFrame.sql` with a run history |
+| `datasium.ui.app` | NiceGUI workbench: loader, schema view, column select, row filters, result preview, SQL query |
 
 ## Test
 

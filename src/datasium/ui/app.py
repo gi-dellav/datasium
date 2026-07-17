@@ -14,6 +14,7 @@ from nicegui import events, ui
 from datasium.calculate import Calculator, _is_numeric as _is_numeric_dtype, compute_stat
 from datasium.dataset import Dataset, DatasetRegistry, UnsupportedFormatError
 from datasium.filter import FilterBuilder
+from datasium.query import QueryEntry, QueryPanel, run_sql
 
 _APP_TITLE = "datasium"
 _APP_TAGLINE = "a visual data-workbench · Polars"
@@ -37,6 +38,8 @@ class App:
         self.filter_builder: FilterBuilder | None = None
         self.preview_mode = "selected"
         self.calculator: Calculator | None = None
+        self.query_history: list[QueryEntry] = []
+        self.query_panel: QueryPanel | None = None
 
     # ------------------------------------------------------------------ build
     def build(self) -> None:
@@ -63,6 +66,7 @@ class App:
             ui.tab("Select", icon="filter_alt")
             ui.tab("View", icon="visibility")
             ui.tab("Calculate", icon="functions")
+            ui.tab("Query", icon="query_stats")
 
         with ui.tab_panels(self.tabs, value="Load").classes("w-full"):
             with ui.tab_panel("Load"):
@@ -77,6 +81,9 @@ class App:
             with ui.tab_panel("Calculate"):
                 self.calc_container = ui.column().classes("w-full p-4")
                 self._render_calculate_tab()
+            with ui.tab_panel("Query"):
+                self.query_container = ui.column().classes("w-full p-4")
+                self._render_query_tab()
 
     # ---------------------------------------------------------------- load tab
     def _render_load_tab(self) -> None:
@@ -238,6 +245,43 @@ class App:
             return
         self.calculator.set_result(value)
 
+    # ------------------------------------------------------------- query tab
+    def _render_query_tab(self) -> None:
+        self.query_container.clear()
+        ds = self.registry.get(self.active_name) if self.active_name else None
+        if ds is None:
+            with self.query_container:
+                with ui.column().classes("w-full items-center justify-center py-16 gap-2"):
+                    ui.icon("query_stats", size="48px").classes("opacity-30")
+                    ui.label("Load a dataset first").classes("opacity-60")
+            return
+
+        with self.query_container:
+            self.query_panel = QueryPanel(
+                self.query_container, self.query_history, self._run_query,
+            )
+
+    def _run_query(self, query: str) -> None:
+        ds = self.registry.get(self.active_name) if self.active_name else None
+        if ds is None:
+            ui.notify("No active dataset", type="warning", position="top")
+            return
+        try:
+            df = ds.lazyframe.collect()
+            result = run_sql(df, query)
+        except ValueError as err:
+            self.query_history.append(QueryEntry(query=query, error=str(err)))
+            ui.notify(str(err), type="warning", position="top")
+        except Exception as err:
+            msg = f"{type(err).__name__}: {err}"
+            self.query_history.append(QueryEntry(query=query, error=msg))
+            ui.notify(msg, type="negative", position="top")
+        else:
+            self.query_history.append(QueryEntry(query=query, result=result))
+            ui.notify("Query complete", type="positive", position="top")
+        if self.query_panel is not None:
+            self.query_panel._render_history()
+
     @staticmethod
     def _stat(label: str, value: str, icon: str) -> None:
         with ui.column().classes("gap-1 items-start"):
@@ -364,6 +408,7 @@ class App:
             self._render_select_tab()
             self._render_view_tab()
             self._render_calculate_tab()
+            self._render_query_tab()
             self.tabs.set_value("Select")
             ui.notify(f"Loaded {ds.name}", type="positive", position="top")
         except UnsupportedFormatError as err:
@@ -378,6 +423,7 @@ class App:
         self._render_select_tab()
         self._render_view_tab()
         self._render_calculate_tab()
+        self._render_query_tab()
 
     def _select(self, name: str) -> None:
         self.active_name = name
@@ -387,6 +433,7 @@ class App:
         self._render_select_tab()
         self._render_view_tab()
         self._render_calculate_tab()
+        self._render_query_tab()
         self.tabs.set_value("Select")
 
 
