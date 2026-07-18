@@ -164,6 +164,79 @@ def set_cell_by_key(
     )
 
 
+def fill_nulls(
+    lf: pl.LazyFrame, column: str,
+    strategy: str = "value", fill_value: str = "",
+    dtype: pl.DataType | None = None,
+) -> pl.LazyFrame:
+    """Fill nulls in *column* using *strategy* (value / forward / backward / mean /
+    median / mode / zero / min / max).
+
+    Raises ``ValueError`` with a user-facing message on bad input.
+    """
+    names = lf.collect_schema().names()
+    if column not in names:
+        raise ValueError(f"column {column!r} not found")
+    if dtype is None:
+        dtype = dict(lf.collect_schema().items())[column]
+
+    col = pl.col(column)
+
+    if strategy == "value":
+        if fill_value is None or str(fill_value).strip() == "":
+            return lf  # nothing to fill with — no-op
+        val = _coerce_or_none(fill_value, dtype)
+        return lf.with_columns(col.fill_null(val))
+    if strategy == "forward":
+        return lf.with_columns(col.forward_fill())
+    if strategy == "backward":
+        return lf.with_columns(col.backward_fill())
+    if strategy == "zero":
+        return lf.with_columns(col.fill_null(0))
+    if strategy == "min":
+        return lf.with_columns(col.fill_null(col.min()))
+    if strategy == "max":
+        return lf.with_columns(col.fill_null(col.max()))
+    if strategy == "mean":
+        return lf.with_columns(col.fill_null(col.mean()))
+    if strategy == "median":
+        return lf.with_columns(col.fill_null(col.median()))
+    if strategy == "mode":
+        return lf.with_columns(col.fill_null(col.drop_nulls().mode().first()))
+
+    raise ValueError(f"unknown fill strategy {strategy!r}")
+
+
+def replace_values(
+    lf: pl.LazyFrame, column: str, old_raw: str, new_raw: str,
+    dtype: pl.DataType | None = None,
+) -> pl.LazyFrame:
+    """Replace every occurrence of *old_raw* with *new_raw* in *column*.
+
+    Blank *old_raw* targets null cells.  Raises ``ValueError`` on
+    unrecognised columns or unparseable literals.
+    """
+    names = lf.collect_schema().names()
+    if column not in names:
+        raise ValueError(f"column {column!r} not found")
+    if dtype is None:
+        dtype = dict(lf.collect_schema().items())[column]
+
+    col = pl.col(column)
+    if old_raw.strip() == "":
+        new_val = _coerce_or_none(new_raw, dtype)
+        return lf.with_columns(col.fill_null(new_val))
+
+    old_val = _coerce_or_none(old_raw, dtype)
+    new_val = _coerce_or_none(new_raw, dtype)
+    return lf.with_columns(
+        pl.when(col == old_val)
+        .then(pl.lit(new_val).cast(dtype) if new_val is not None else pl.lit(None))
+        .otherwise(col)
+        .alias(column)
+    )
+
+
 # ---------------------------------------------------------------------------
 # UI component
 # ---------------------------------------------------------------------------
@@ -171,6 +244,18 @@ _EDIT_ROW_MODES = {
     "index": "By row number",
     "keys": "By matching columns",
 }
+
+_FILL_STRATEGIES = [
+    ("Fill with value", "value"),
+    ("Forward fill", "forward"),
+    ("Backward fill", "backward"),
+    ("Fill with zero", "zero"),
+    ("Fill with min", "min"),
+    ("Fill with max", "max"),
+    ("Fill with mean", "mean"),
+    ("Fill with median", "median"),
+    ("Fill with mode", "mode"),
+]
 
 
 class EditPanel:
@@ -184,6 +269,8 @@ class EditPanel:
         on_add_column: Callable[[str, str, str], None],
         on_add_row: Callable[[dict[str, str]], None],
         on_edit_row: Callable[[str, object, list[str], list[str], str, str], None],
+        on_fill_nulls: Callable[[str, str, str], None],
+        on_replace_values: Callable[[str, str, str], None],
     ) -> None:
         self._columns = columns
         self._col_names = [n for n, _ in columns]
@@ -191,6 +278,8 @@ class EditPanel:
         self._on_add_column = on_add_column
         self._on_add_row = on_add_row
         self._on_edit_row = on_edit_row
+        self._on_fill_nulls = on_fill_nulls
+        self._on_replace_values = on_replace_values
 
         with parent:
             self._build_cast_section()
@@ -200,6 +289,10 @@ class EditPanel:
             self._build_add_row_section()
             ui.separator()
             self._build_edit_row_section()
+            ui.separator()
+            self._build_fill_nulls_section()
+            ui.separator()
+            self._build_replace_values_section()
 
     # ---- 1. cast --------------------------------------------------------
     def _build_cast_section(self) -> None:
@@ -367,3 +460,65 @@ class EditPanel:
                 "keys", None, cols, vals,
                 self.edit_col.value, self.edit_val.value or "",
             )
+
+    # ---- 5. fill nulls ---------------------------------------------------
+    def _build_fill_nulls_section(self) -> None:
+        ui.label("Fill nulls").classes("text-lg font-medium mt-2")
+        ui.label(
+            "Replace null values in a column using a strategy."
+        ).classes("text-xs opacity-50")
+        with ui.row().classes("items-center gap-2 w-full"):
+            self.fill_col = ui.select(
+                options={n: n for n in self._col_names} or {"—": "—"},
+                value=self._col_names[0] if self._col_names else None,
+                label="Column",
+            ).props("dense outlined").classes("w-40")
+            self.fill_strategy = ui.select(
+                options={k: lbl for lbl, k in _FILL_STRATEGIES},
+                value="value", label="Strategy",
+                on_change=lambda _e: self._refresh_fill_vis(),
+            ).props("dense outlined").classes("w-48")
+            self.fill_value = ui.input(
+                value="", label="Fill value",
+            ).props("dense outlined").classes("w-32")
+            ui.button(
+                "Fill nulls", icon="water_drop",
+                on_click=lambda _=None: self._on_fill_nulls(
+                    self.fill_col.value or "",
+                    self.fill_strategy.value or "value",
+                    self.fill_value.value or "",
+                ),
+            ).props("dense unelevated color=primary")
+        self._refresh_fill_vis()
+
+    def _refresh_fill_vis(self) -> None:
+        strat = self.fill_strategy.value if hasattr(self, "fill_strategy") else "value"
+        self.fill_value.set_visibility(strat == "value")
+
+    # ---- 6. replace values ------------------------------------------------
+    def _build_replace_values_section(self) -> None:
+        ui.label("Replace values").classes("text-lg font-medium mt-2")
+        ui.label(
+            "Replace every occurrence of a value in a column. "
+            "Leave 'Old value' blank to target null cells."
+        ).classes("text-xs opacity-50")
+        with ui.row().classes("items-center gap-2 w-full"):
+            self.repl_col = ui.select(
+                options={n: n for n in self._col_names} or {"—": "—"},
+                value=self._col_names[0] if self._col_names else None,
+                label="Column",
+            ).props("dense outlined").classes("w-40")
+            self.repl_old = ui.input(
+                value="", label="Old value (blank for null)",
+            ).props("dense outlined").classes("w-40")
+            self.repl_new = ui.input(
+                value="", label="New value",
+            ).props("dense outlined").classes("w-40")
+            ui.button(
+                "Replace", icon="find_replace",
+                on_click=lambda _=None: self._on_replace_values(
+                    self.repl_col.value or "",
+                    self.repl_old.value or "",
+                    self.repl_new.value or "",
+                ),
+            ).props("dense unelevated color=primary")

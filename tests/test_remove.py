@@ -177,6 +177,77 @@ def test_apply_removal_nulls_combo(null_lf):
 
 
 # ---------------------------------------------------------------------------
+# remove_duplicates
+# ---------------------------------------------------------------------------
+def test_remove_duplicates_all(lf):
+    # sample.csv has no duplicate rows -> no change
+    from datasium.remove import remove_duplicates
+    out = remove_duplicates(lf).collect()
+    assert out.shape == (8, 4)
+
+
+def test_remove_duplicates_subset():
+    df = pl.DataFrame({"a": [1, 1, 2], "b": [3, 4, 5], "c": ["x", "x", "y"]})
+    from datasium.remove import remove_duplicates
+    out = remove_duplicates(df.lazy(), subset=["a"]).collect()
+    assert out.shape == (2, 3)
+    assert set(out["a"].to_list()) == {1, 2}
+    # keep="first" retains first occurrences: a=1,b=3 and a=2,b=5
+    assert out.filter(pl.col("a") == 1)["b"].item() == 3
+    assert out.filter(pl.col("a") == 2)["b"].item() == 5
+
+
+def test_remove_duplicates_keep_last():
+    df = pl.DataFrame({"a": [1, 1, 2], "b": [3, 4, 5]})
+    from datasium.remove import remove_duplicates
+    out = remove_duplicates(df.lazy(), subset=["a"], keep="last").collect()
+    assert out.shape == (2, 2)
+    # keep="last" retains last occurrences: a=1,b=4 and a=2,b=5
+    assert out.filter(pl.col("a") == 1)["b"].item() == 4
+    assert out.filter(pl.col("a") == 2)["b"].item() == 5
+
+
+def test_remove_duplicates_keep_none():
+    df = pl.DataFrame({"a": [1, 1, 2], "b": [3, 4, 5]})
+    from datasium.remove import remove_duplicates
+    out = remove_duplicates(df.lazy(), subset=["a"], keep="none").collect()
+    assert out.shape == (1, 2)
+    assert out["a"].to_list() == [2]
+
+
+def test_remove_duplicates_unknown_subset(lf):
+    from datasium.remove import remove_duplicates
+    with pytest.raises(ValueError, match="not found"):
+        remove_duplicates(lf, subset=["bogus"])
+
+
+def test_remove_duplicates_bad_keep(lf):
+    from datasium.remove import remove_duplicates
+    with pytest.raises(ValueError, match="keep must be"):
+        remove_duplicates(lf, keep="bogus")
+
+
+# ---------------------------------------------------------------------------
+# apply_removal with duplicates mode
+# ---------------------------------------------------------------------------
+def test_apply_removal_duplicates():
+    df = pl.DataFrame({"a": [1, 1, 2], "b": [3, 4, 5]})
+    from datasium.remove import apply_removal, RemovalSpec
+    spec = RemovalSpec(row_mode="duplicates", dup_subset=["a"])
+    out = apply_removal(df.lazy(), spec).collect()
+    assert out.shape == (2, 2)
+
+
+def test_apply_removal_duplicates_with_columns():
+    df = pl.DataFrame({"a": [1, 1, 2], "b": [3, 4, 5]})
+    from datasium.remove import apply_removal, RemovalSpec
+    spec = RemovalSpec(row_mode="duplicates", dup_subset=["a"], columns=["b"])
+    out = apply_removal(df.lazy(), spec).collect()
+    assert out.shape == (2, 1)
+    assert out.columns == ["a"]
+
+
+# ---------------------------------------------------------------------------
 # DatasetRegistry.replace
 # ---------------------------------------------------------------------------
 def test_registry_replace():

@@ -21,7 +21,7 @@ from nicegui import ui
 
 from datasium.filter import _OPERATORS, _NULLARY, _dtype_group, build_term
 
-RowMode = Literal["none", "values", "nulls", "selection"]
+RowMode = Literal["none", "values", "nulls", "selection", "duplicates"]
 
 
 # ---------------------------------------------------------------------------
@@ -37,6 +37,8 @@ class RemovalSpec:
     value_op: str | None = None
     value_raw: str = ""
     null_subset: list[str] | None = None  # None => every column
+    dup_subset: list[str] | None = None   # None => all columns
+    dup_keep: str = "first"               # first / last / none
     selection_expr: pl.Expr | None = None
 
 
@@ -80,6 +82,24 @@ def remove_nulls(
     return lf.drop_nulls(subset=subset)
 
 
+def remove_duplicates(
+    lf: pl.LazyFrame, subset: list[str] | None = None, keep: str = "first",
+) -> pl.LazyFrame:
+    """Drop duplicate rows.
+
+    If *subset* is given, only those columns are considered when determining
+    duplicates.  *keep* selects which row to retain: ``"first"``, ``"last"``,
+    or ``"none"`` (drop all copies).
+    """
+    if subset:
+        missing = _missing_columns(lf, subset)
+        if missing:
+            raise ValueError(f"column(s) not found: {', '.join(missing)}")
+    if keep not in ("first", "last", "none"):
+        raise ValueError(f"keep must be 'first', 'last', or 'none', got {keep!r}")
+    return lf.unique(subset=subset or None, keep=keep)
+
+
 def apply_removal(lf: pl.LazyFrame, spec: RemovalSpec) -> pl.LazyFrame:
     """Apply ``spec`` to ``lf`` and return the resulting LazyFrame.
 
@@ -96,6 +116,8 @@ def apply_removal(lf: pl.LazyFrame, spec: RemovalSpec) -> pl.LazyFrame:
         if spec.selection_expr is None:
             raise ValueError("no row selection is active in the Select tab")
         lf = lf.filter(~spec.selection_expr)
+    elif mode == "duplicates":
+        lf = remove_duplicates(lf, spec.dup_subset, spec.dup_keep)
     elif mode == "none":
         pass
     else:
@@ -159,6 +181,7 @@ class RemovePanel:
                     "values": "Certain values",
                     "nulls": "Null values",
                     "selection": "Given selection",
+                    "duplicates": "Duplicate values",
                 },
                 value="none",
                 on_change=lambda _e: self._refresh_mode(),
@@ -195,6 +218,30 @@ class RemovePanel:
                     "Removes the rows matched by the filters defined in the "
                     "Select tab (every row when none are set)."
                 ).classes("text-sm opacity-50")
+            elif mode == "duplicates":
+                self._build_duplicates_inputs()
+
+    def _build_duplicates_inputs(self) -> None:
+        ui.label(
+            "Drop duplicate rows. Choose which columns define a duplicate "
+            "and which copy to keep."
+        ).classes("text-xs opacity-50")
+        with ui.row().classes("items-center gap-2 w-full"):
+            self.dup_all = ui.switch(
+                "All columns", value=True,
+                on_change=lambda _e: self.dup_subset.set_visibility(not self.dup_all.value),
+            ).props("dense")
+            self.dup_subset = ui.select(
+                options={n: n for n in self.col_names} or {"—": "—"},
+                multiple=True, value=[], clearable=True, label="Columns",
+            ).props("dense outlined use-chips").classes("w-full")
+            self.dup_subset.set_visibility(False)
+        with ui.row().classes("items-center gap-2 w-full mt-1"):
+            ui.label("Keep:").classes("text-sm")
+            self.dup_keep = ui.select(
+                {"first": "First occurrence", "last": "Last occurrence", "none": "None (drop all)"},
+                value="first", label="Keep",
+            ).props("dense outlined").classes("w-48")
 
     def _build_values_inputs(self) -> None:
         with ui.row().classes("items-center gap-2 w-full"):
@@ -248,6 +295,8 @@ class RemovePanel:
         value_column = value_op = None
         value_raw = ""
         null_subset: list[str] | None = None
+        dup_subset: list[str] | None = None
+        dup_keep: str = "first"
         selection_expr = None
 
         if mode == "values" and hasattr(self, "val_col"):
@@ -261,6 +310,13 @@ class RemovePanel:
             else:
                 null_subset = list(self.null_subset.value or [])
 
+        if mode == "duplicates" and hasattr(self, "dup_all"):
+            if self.dup_all.value:
+                dup_subset = None
+            else:
+                dup_subset = list(self.dup_subset.value or [])
+            dup_keep = self.dup_keep.value or "first"
+
         if mode == "selection":
             selection_expr = self._on_selection_expr()  # provided by App
 
@@ -271,6 +327,8 @@ class RemovePanel:
             value_op=value_op,
             value_raw=value_raw,
             null_subset=null_subset,
+            dup_subset=dup_subset,
+            dup_keep=dup_keep,
             selection_expr=selection_expr,
         )
 

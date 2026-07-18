@@ -9,6 +9,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import argparse
+
 from nicegui import events, ui
 
 from datasium.calculate import Calculator, _is_numeric as _is_numeric_dtype, compute_stat
@@ -16,15 +18,19 @@ from datasium.dataset import Dataset, DatasetRegistry, UnsupportedFormatError
 from datasium.filter import FilterBuilder
 from datasium.query import QueryEntry, QueryPanel, run_sql
 from datasium.edit import (
+    DTYPE_BY_KEY,
     EditPanel,
     add_column as _edit_add_column,
     add_row as _edit_add_row,
     cast_column as _edit_cast_column,
+    fill_nulls as _edit_fill_nulls,
+    replace_values as _edit_replace_values,
     set_cell_by_index as _edit_set_cell_by_index,
     set_cell_by_key as _edit_set_cell_by_key,
 )
 from datasium.remove import RemovePanel, apply_removal
 from datasium.plot import PlotPanel, PlotSpec, build_figure
+from datasium.write import WritePanel, save_frame, apply_selection
 
 import polars as pl
 
@@ -57,6 +63,7 @@ class App:
         self.remove_preview_container = None
         self._remove_preview = None
         self.edit_panel: EditPanel | None = None
+        self.write_panel: WritePanel | None = None
         self.plot_panel: PlotPanel | None = None
 
     # ------------------------------------------------------------------ build
@@ -88,6 +95,7 @@ class App:
             ui.tab("Remove", icon="delete_sweep")
             ui.tab("Calculate", icon="functions")
             ui.tab("Plot", icon="show_chart")
+            ui.tab("Write", icon="save")
 
         with ui.tab_panels(self.tabs, value="Load").classes("w-full"):
             with ui.tab_panel("Load"):
@@ -114,6 +122,9 @@ class App:
             with ui.tab_panel("Plot"):
                 self.plot_root = ui.column().classes("w-full p-4")
                 self._render_plot_tab()
+            with ui.tab_panel("Write"):
+                self.write_container = ui.column().classes("w-full p-4")
+                self._render_write_tab()
 
     # ---------------------------------------------------------------- load tab
     def _render_load_tab(self) -> None:
@@ -326,6 +337,7 @@ class App:
         self._render_calculate_tab()
         self._render_query_tab()
         self._render_plot_tab()
+        self._render_write_tab()
         ui.notify(f"Removed · now {ar:,} row(s) × {ac} column(s)",
                   type="positive", position="top")
 
@@ -354,6 +366,8 @@ class App:
                 self._on_edit_add_column,
                 self._on_edit_add_row,
                 self._on_edit_edit_row,
+                self._on_edit_fill_nulls,
+                self._on_edit_replace_values,
             )
 
     # -- edit handlers ----------------------------------------------------
@@ -378,6 +392,7 @@ class App:
         self._render_calculate_tab()
         self._render_query_tab()
         self._render_plot_tab()
+        self._render_write_tab()
         ar, ac = df.shape
         ui.notify(f"{label} · now {ar:,} row(s) × {ac} column(s)",
                   type="positive", position="top")
@@ -388,7 +403,6 @@ class App:
         if ds is None or column in (None, "—"):
             ui.notify("select a column", type="warning", position="top")
             return
-        from datasium.edit import DTYPE_BY_KEY
         if dtype_key not in DTYPE_BY_KEY:
             ui.notify("select a target dtype", type="warning", position="top")
             return
@@ -404,7 +418,6 @@ class App:
         if ds is None:
             ui.notify("No active dataset", type="warning", position="top")
             return
-        from datasium.edit import DTYPE_BY_KEY
         if dtype_key not in DTYPE_BY_KEY:
             ui.notify("select a column type", type="warning", position="top")
             return
@@ -456,6 +469,30 @@ class App:
             ui.notify(str(err), type="warning", position="top")
             return
         self._apply_edit(new_lf, f"Edited {column}")
+
+    def _on_edit_fill_nulls(self, column: str, strategy: str, fill_value: str) -> None:
+        ds = self.registry.get(self.active_name) if self.active_name else None
+        if ds is None or not column:
+            ui.notify("select a column", type="warning", position="top")
+            return
+        try:
+            new_lf = _edit_fill_nulls(ds.lazyframe, column, strategy, fill_value)
+        except ValueError as err:
+            ui.notify(str(err), type="warning", position="top")
+            return
+        self._apply_edit(new_lf, f"Filled nulls in {column}")
+
+    def _on_edit_replace_values(self, column: str, old_raw: str, new_raw: str) -> None:
+        ds = self.registry.get(self.active_name) if self.active_name else None
+        if ds is None or not column:
+            ui.notify("select a column", type="warning", position="top")
+            return
+        try:
+            new_lf = _edit_replace_values(ds.lazyframe, column, old_raw, new_raw)
+        except ValueError as err:
+            ui.notify(str(err), type="warning", position="top")
+            return
+        self._apply_edit(new_lf, f"Replaced values in {column}")
 
     # ------------------------------------------------------------- calculate tab
     def _render_calculate_tab(self) -> None:
@@ -575,6 +612,113 @@ class App:
             f"{'current selection' if scope == 'selection' else 'entire dataset'}{filt}"
         )
         self.plot_panel.render_plot(fig)
+
+    # --------------------------------------------------------------- write tab
+    def _render_write_tab(self) -> None:
+        self.write_container.clear()
+        self.write_panel = None
+        ds = self.registry.get(self.active_name) if self.active_name else None
+        if ds is None:
+            with self.write_container:
+                with ui.column().classes("w-full items-center justify-center py-16 gap-2"):
+                    ui.icon("save", size="48px").classes("opacity-30")
+                    ui.label("Load a dataset first").classes("opacity-60")
+            return
+
+        with self.write_container:
+            with ui.row().classes("items-center justify-between w-full"):
+                with ui.column().classes("gap-0"):
+                    ui.label("Write").classes("text-lg font-medium")
+                    ui.label(
+                        "Persist the dataset — overwrite the source file, "
+                        "save the selection into the current dataset, or export "
+                        "as a new file / dataset."
+                    ).classes("text-xs opacity-50")
+            self.write_panel = WritePanel(
+                self.write_container,
+                on_save_edits=self._on_write_save_edits,
+                on_save_selection=self._on_write_save_selection,
+                on_export_dataset=self._on_write_export_dataset,
+                on_export_selection=self._on_write_export_selection,
+            )
+
+    def _on_write_save_edits(self) -> None:
+        ds = self.registry.get(self.active_name) if self.active_name else None
+        if ds is None:
+            ui.notify("No active dataset", type="warning", position="top")
+            return
+        try:
+            path = save_frame(ds.lazyframe, ds.source)
+            ui.notify(f"Saved to {path}", type="positive", position="top")
+        except Exception as err:
+            ui.notify(f"Could not save: {err}", type="negative", position="top")
+
+    def _on_write_save_selection(self) -> None:
+        ds = self.registry.get(self.active_name) if self.active_name else None
+        if ds is None:
+            ui.notify("No active dataset", type="warning", position="top")
+            return
+        expr = self.filter_builder.build_expr() if self.filter_builder else None
+        new_lf = apply_selection(ds.lazyframe, expr, self.selected_columns)
+        try:
+            df = new_lf.collect()
+        except Exception as err:
+            ui.notify(f"Could not apply selection: {err}", type="negative", position="top")
+            return
+        self.registry.replace(self.active_name, df.lazy())
+        self.selected_columns = None
+        self._render_list()
+        self._render_select_tab()
+        self._render_view_tab()
+        self._render_remove_tab()
+        self._render_edit_tab()
+        self._render_calculate_tab()
+        self._render_query_tab()
+        self._render_plot_tab()
+        self._render_write_tab()
+        ar, ac = df.shape
+        ui.notify(f"Selection saved · now {ar:,} row(s) × {ac} column(s)",
+                  type="positive", position="top")
+
+    def _on_write_export_dataset(self, path: str, name: str) -> None:
+        ds = self.registry.get(self.active_name) if self.active_name else None
+        if ds is None:
+            ui.notify("No active dataset", type="warning", position="top")
+            return
+        if not path.strip():
+            ui.notify("Enter a file path", type="warning", position="top")
+            return
+        try:
+            saved = save_frame(ds.lazyframe, path)
+            ui.notify(f"Exported to {saved}", type="positive", position="top")
+        except Exception as err:
+            ui.notify(f"Could not export: {err}", type="negative", position="top")
+            return
+        if name.strip():
+            self.registry.load(path, open(path, "rb").read(), name=name.strip())
+            self.active_name = name.strip()
+            self._render_list()
+
+    def _on_write_export_selection(self, path: str, name: str) -> None:
+        ds = self.registry.get(self.active_name) if self.active_name else None
+        if ds is None:
+            ui.notify("No active dataset", type="warning", position="top")
+            return
+        if not path.strip():
+            ui.notify("Enter a file path", type="warning", position="top")
+            return
+        expr = self.filter_builder.build_expr() if self.filter_builder else None
+        new_lf = apply_selection(ds.lazyframe, expr, self.selected_columns)
+        try:
+            saved = save_frame(new_lf, path)
+            ui.notify(f"Exported selection to {saved}", type="positive", position="top")
+        except Exception as err:
+            ui.notify(f"Could not export: {err}", type="negative", position="top")
+            return
+        if name.strip():
+            self.registry.load(path, open(path, "rb").read(), name=name.strip())
+            self.active_name = name.strip()
+            self._render_list()
 
     # ------------------------------------------------------------- query tab
     def _render_query_tab(self) -> None:
@@ -745,6 +889,7 @@ class App:
             self._render_calculate_tab()
             self._render_plot_tab()
             self._render_query_tab()
+            self._render_write_tab()
             self.tabs.set_value("Select")
             ui.notify(f"Loaded {ds.name}", type="positive", position="top")
         except UnsupportedFormatError as err:
@@ -763,6 +908,7 @@ class App:
         self._render_calculate_tab()
         self._render_query_tab()
         self._render_plot_tab()
+        self._render_write_tab()
 
     def _select(self, name: str) -> None:
         self.active_name = name
@@ -776,6 +922,7 @@ class App:
         self._render_calculate_tab()
         self._render_query_tab()
         self._render_plot_tab()
+        self._render_write_tab()
         self.tabs.set_value("Select")
 
 
@@ -786,7 +933,12 @@ def _page() -> None:
 
 
 def main() -> None:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--native", action="store_true", help="Run as a native desktop window instead of a web server")
+    args = parser.parse_args()
+
     ui.run(
+        native=args.native,
         reload=False,
         title=_APP_TITLE,
         port=8080,
