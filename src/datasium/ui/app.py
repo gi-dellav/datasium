@@ -24,6 +24,7 @@ from datasium.edit import (
     set_cell_by_key as _edit_set_cell_by_key,
 )
 from datasium.remove import RemovePanel, apply_removal
+from datasium.plot import PlotPanel, PlotSpec, build_figure
 
 import polars as pl
 
@@ -56,6 +57,7 @@ class App:
         self.remove_preview_container = None
         self._remove_preview = None
         self.edit_panel: EditPanel | None = None
+        self.plot_panel: PlotPanel | None = None
 
     # ------------------------------------------------------------------ build
     def build(self) -> None:
@@ -85,6 +87,7 @@ class App:
             ui.tab("Query", icon="query_stats")
             ui.tab("Remove", icon="delete_sweep")
             ui.tab("Calculate", icon="functions")
+            ui.tab("Plot", icon="show_chart")
 
         with ui.tab_panels(self.tabs, value="Load").classes("w-full"):
             with ui.tab_panel("Load"):
@@ -108,6 +111,9 @@ class App:
             with ui.tab_panel("Calculate"):
                 self.calc_container = ui.column().classes("w-full p-4")
                 self._render_calculate_tab()
+            with ui.tab_panel("Plot"):
+                self.plot_root = ui.column().classes("w-full p-4")
+                self._render_plot_tab()
 
     # ---------------------------------------------------------------- load tab
     def _render_load_tab(self) -> None:
@@ -319,6 +325,7 @@ class App:
         self._render_edit_tab()
         self._render_calculate_tab()
         self._render_query_tab()
+        self._render_plot_tab()
         ui.notify(f"Removed · now {ar:,} row(s) × {ac} column(s)",
                   type="positive", position="top")
 
@@ -370,6 +377,7 @@ class App:
         self._render_edit_tab()
         self._render_calculate_tab()
         self._render_query_tab()
+        self._render_plot_tab()
         ar, ac = df.shape
         ui.notify(f"{label} · now {ar:,} row(s) × {ac} column(s)",
                   type="positive", position="top")
@@ -507,6 +515,66 @@ class App:
             ui.notify(msg, type="negative", position="top")
             return
         self.calculator.set_result(value)
+
+    # --------------------------------------------------------------- plot tab
+    def _render_plot_tab(self) -> None:
+        self.plot_root.clear()
+        self.plot_panel = None
+        ds = self.registry.get(self.active_name) if self.active_name else None
+        if ds is None:
+            with self.plot_root:
+                with ui.column().classes("w-full items-center justify-center py-16 gap-2"):
+                    ui.icon("show_chart", size="48px").classes("opacity-30")
+                    ui.label("Load a dataset first").classes("opacity-60")
+            return
+
+        with self.plot_root:
+            with ui.row().classes("items-center justify-between w-full"):
+                with ui.column().classes("gap-0"):
+                    ui.label("Plot").classes("text-lg font-medium")
+                    ui.label(
+                        "Build a Plotly figure from every row or just the rows that pass "
+                        "the Select-tab filters. Pick a type, columns, and (for bar) a "
+                        "statistic."
+                    ).classes("text-xs opacity-50")
+            self.plot_panel = PlotPanel(self.plot_root, ds.columns, self._run_plot)
+            self._run_plot()
+
+    def _run_plot(self) -> None:
+        if self.plot_panel is None:
+            return
+        ds = self.registry.get(self.active_name) if self.active_name else None
+        if ds is None:
+            return
+        spec = self.plot_panel.spec
+        scope = self.plot_panel.scope
+        try:
+            lf = ds.lazyframe
+            if scope == "selection":
+                expr = self.filter_builder.build_expr() if self.filter_builder else None
+                if expr is not None:
+                    lf = lf.filter(expr)
+            df = lf.collect()
+            fig = build_figure(df, spec)
+        except ValueError as err:
+            self.plot_panel.set_meta(str(err))
+            self.plot_panel.render_error(str(err))
+            ui.notify(str(err), type="warning", position="top")
+            return
+        except Exception as err:  # unhandled polars / numpy / plotly errors
+            msg = f"Could not build plot: {err}"
+            self.plot_panel.set_meta(msg)
+            self.plot_panel.render_error(msg)
+            ui.notify(msg, type="negative", position="top")
+            return
+        filt = " with filters" if (
+            scope == "selection" and self.filter_builder and self.filter_builder.rows
+        ) else ""
+        self.plot_panel.set_meta(
+            f"{spec.plot_type} · {df.height:,} row(s) · "
+            f"{'current selection' if scope == 'selection' else 'entire dataset'}{filt}"
+        )
+        self.plot_panel.render_plot(fig)
 
     # ------------------------------------------------------------- query tab
     def _render_query_tab(self) -> None:
@@ -660,6 +728,8 @@ class App:
 
         if self.calculator is not None:
             self._run_calculate()
+        if self.plot_panel is not None:
+            self._run_plot()
 
     # ----------------------------------------------------------------- handlers
     def _on_upload(self, e: events.UploadEventArguments) -> None:
@@ -673,6 +743,7 @@ class App:
             self._render_remove_tab()
             self._render_edit_tab()
             self._render_calculate_tab()
+            self._render_plot_tab()
             self._render_query_tab()
             self.tabs.set_value("Select")
             ui.notify(f"Loaded {ds.name}", type="positive", position="top")
@@ -691,6 +762,7 @@ class App:
         self._render_edit_tab()
         self._render_calculate_tab()
         self._render_query_tab()
+        self._render_plot_tab()
 
     def _select(self, name: str) -> None:
         self.active_name = name
@@ -703,6 +775,7 @@ class App:
         self._render_edit_tab()
         self._render_calculate_tab()
         self._render_query_tab()
+        self._render_plot_tab()
         self.tabs.set_value("Select")
 
 

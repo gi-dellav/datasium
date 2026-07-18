@@ -27,6 +27,12 @@ Per active dataset you can:
   `self`, e.g. `SELECT * FROM self WHERE age > 20`). Executed queries are
   kept in a history list shown below the input, each with its result (or
   error) and a re-run button.
+- **Plot** the active dataset with **Plotly**: choose a plot type
+  (scatter, line, bar, histogram, box, violin), X / Y / color columns, and
+  (for bar) an aggregation statistic (mean / sum / min / max / median /
+  count). Plot from the **entire dataset** or just the **current selection**
+  (the rows that pass the Select-tab filters); the figure updates live when
+  filters change.
 
 ## Architecture
 
@@ -35,7 +41,8 @@ Per active dataset you can:
 | `datasium.dataset` | `Dataset` / `DatasetRegistry` of named `LazyFrame` sources, format readers |
 | `datasium.filter` | Reusable `FilterBuilder` component producing Polars `df.filter` expressions |
 | `datasium.query` | SQL query component running `polars.DataFrame.sql` with a run history |
-| `datasium.ui.app` | NiceGUI workbench: loader, schema view, column select, row filters, result preview, SQL query |
+| `datasium.plot` | Plotly figure builder (`build_figure` + `PlotSpec`) and `PlotPanel` UI |
+| `datasium.ui.app` | NiceGUI workbench: loader, schema view, column select, row filters, result preview, SQL query, plots |
 
 ## Test
 
