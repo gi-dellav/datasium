@@ -133,7 +133,9 @@ def test_apply_removal_columns_only(lf):
 def test_apply_removal_values_and_columns(lf, schema):
     spec = RemovalSpec(
         row_mode="values",
-        value_column="city", value_op="eq", value_raw="London",
+        value_column="city",
+        value_op="eq",
+        value_raw="London",
         columns=["score"],
     )
     out = apply_removal(lf, spec).collect()
@@ -145,7 +147,9 @@ def test_apply_removal_values_and_columns(lf, schema):
 
 def test_apply_removal_selection(lf, schema):
     expr = build_term("city", "eq", "London", schema["city"])
-    out = apply_removal(lf, RemovalSpec(row_mode="selection", selection_expr=expr)).collect()
+    out = apply_removal(
+        lf, RemovalSpec(row_mode="selection", selection_expr=expr)
+    ).collect()
     assert set(out["name"]) == {"Bo", "De", "Ed", "Finn", "Hal"}
 
 
@@ -182,6 +186,7 @@ def test_apply_removal_nulls_combo(null_lf):
 def test_remove_duplicates_all(lf):
     # sample.csv has no duplicate rows -> no change
     from datasium.remove import remove_duplicates
+
     out = remove_duplicates(lf).collect()
     assert out.shape == (8, 4)
 
@@ -189,6 +194,7 @@ def test_remove_duplicates_all(lf):
 def test_remove_duplicates_subset():
     df = pl.DataFrame({"a": [1, 1, 2], "b": [3, 4, 5], "c": ["x", "x", "y"]})
     from datasium.remove import remove_duplicates
+
     out = remove_duplicates(df.lazy(), subset=["a"]).collect()
     assert out.shape == (2, 3)
     assert set(out["a"].to_list()) == {1, 2}
@@ -200,6 +206,7 @@ def test_remove_duplicates_subset():
 def test_remove_duplicates_keep_last():
     df = pl.DataFrame({"a": [1, 1, 2], "b": [3, 4, 5]})
     from datasium.remove import remove_duplicates
+
     out = remove_duplicates(df.lazy(), subset=["a"], keep="last").collect()
     assert out.shape == (2, 2)
     # keep="last" retains last occurrences: a=1,b=4 and a=2,b=5
@@ -210,6 +217,7 @@ def test_remove_duplicates_keep_last():
 def test_remove_duplicates_keep_none():
     df = pl.DataFrame({"a": [1, 1, 2], "b": [3, 4, 5]})
     from datasium.remove import remove_duplicates
+
     out = remove_duplicates(df.lazy(), subset=["a"], keep="none").collect()
     assert out.shape == (1, 2)
     assert out["a"].to_list() == [2]
@@ -217,12 +225,14 @@ def test_remove_duplicates_keep_none():
 
 def test_remove_duplicates_unknown_subset(lf):
     from datasium.remove import remove_duplicates
+
     with pytest.raises(ValueError, match="not found"):
         remove_duplicates(lf, subset=["bogus"])
 
 
 def test_remove_duplicates_bad_keep(lf):
     from datasium.remove import remove_duplicates
+
     with pytest.raises(ValueError, match="keep must be"):
         remove_duplicates(lf, keep="bogus")
 
@@ -233,6 +243,7 @@ def test_remove_duplicates_bad_keep(lf):
 def test_apply_removal_duplicates():
     df = pl.DataFrame({"a": [1, 1, 2], "b": [3, 4, 5]})
     from datasium.remove import apply_removal, RemovalSpec
+
     spec = RemovalSpec(row_mode="duplicates", dup_subset=["a"])
     out = apply_removal(df.lazy(), spec).collect()
     assert out.shape == (2, 2)
@@ -241,6 +252,7 @@ def test_apply_removal_duplicates():
 def test_apply_removal_duplicates_with_columns():
     df = pl.DataFrame({"a": [1, 1, 2], "b": [3, 4, 5]})
     from datasium.remove import apply_removal, RemovalSpec
+
     spec = RemovalSpec(row_mode="duplicates", dup_subset=["a"], columns=["b"])
     out = apply_removal(df.lazy(), spec).collect()
     assert out.shape == (2, 1)

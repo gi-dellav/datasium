@@ -20,7 +20,7 @@ class UnsupportedFormatError(ValueError):
 @dataclass(frozen=True)
 class Dataset:
     name: str
-    source: str          # original file name / label
+    source: str  # original file name / label
     lazyframe: pl.LazyFrame
 
     @property
@@ -71,7 +71,9 @@ class DatasetRegistry:
     def load(self, filename: str, raw: bytes, *, name: str | None = None) -> Dataset:
         label = name or Path(filename).stem
         label = self._unique(label)
-        dataset = Dataset(name=label, source=filename, lazyframe=_read_frame(filename, raw))
+        dataset = Dataset(
+            name=label, source=filename, lazyframe=_read_frame(filename, raw)
+        )
         self._items[label] = dataset
         return dataset
 

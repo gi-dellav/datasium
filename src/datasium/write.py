@@ -98,7 +98,7 @@ class WritePanel:
         *,
         on_save_edits: Callable[[], None],
         on_save_selection: Callable[[], None],
-        on_export_dataset: Callable[[str, str], None],   # path, name-or-""
+        on_export_dataset: Callable[[str, str], None],  # path, name-or-""
         on_export_selection: Callable[[str, str], None],  # path, name-or-""
     ) -> None:
         self._on_save_edits = on_save_edits
@@ -113,7 +113,8 @@ class WritePanel:
                 "Overwrite the original source file with the current state of the dataset."
             ).classes("text-xs opacity-50")
             ui.button(
-                "Save edits", icon="save",
+                "Save edits",
+                icon="save",
                 on_click=lambda _=None: self._on_save_edits(),
             ).props("dense unelevated color=primary")
 
@@ -126,7 +127,8 @@ class WritePanel:
                 "by the Select tab filters."
             ).classes("text-xs opacity-50")
             ui.button(
-                "Save selection into dataset", icon="content_copy",
+                "Save selection into dataset",
+                icon="content_copy",
                 on_click=lambda _=None: self._on_save_selection(),
             ).props("dense unelevated color=primary")
 
@@ -139,15 +141,26 @@ class WritePanel:
                 "Optionally name it for the registry."
             ).classes("text-xs opacity-50")
             with ui.row().classes("items-center gap-2 w-full"):
-                self.export_ds_path = ui.input(
-                    value="", label="File path",
-                    placeholder="e.g. /tmp/out.csv",
-                ).props("dense outlined").classes("w-64")
-                self.export_ds_name = ui.input(
-                    value="", label="Registry name (optional)",
-                ).props("dense outlined").classes("w-40")
+                self.export_ds_path = (
+                    ui.input(
+                        value="",
+                        label="File path",
+                        placeholder="e.g. /tmp/out.csv",
+                    )
+                    .props("dense outlined")
+                    .classes("w-64")
+                )
+                self.export_ds_name = (
+                    ui.input(
+                        value="",
+                        label="Registry name (optional)",
+                    )
+                    .props("dense outlined")
+                    .classes("w-40")
+                )
                 ui.button(
-                    "Export dataset", icon="file_download",
+                    "Export dataset",
+                    icon="file_download",
                     on_click=lambda _=None: self._on_export_dataset(
                         self.export_ds_path.value or "",
                         self.export_ds_name.value or "",
@@ -163,15 +176,26 @@ class WritePanel:
                 "Select tab) to a new file. Optionally name it for the registry."
             ).classes("text-xs opacity-50")
             with ui.row().classes("items-center gap-2 w-full"):
-                self.export_sel_path = ui.input(
-                    value="", label="File path",
-                    placeholder="e.g. /tmp/selection.csv",
-                ).props("dense outlined").classes("w-64")
-                self.export_sel_name = ui.input(
-                    value="", label="Registry name (optional)",
-                ).props("dense outlined").classes("w-40")
+                self.export_sel_path = (
+                    ui.input(
+                        value="",
+                        label="File path",
+                        placeholder="e.g. /tmp/selection.csv",
+                    )
+                    .props("dense outlined")
+                    .classes("w-64")
+                )
+                self.export_sel_name = (
+                    ui.input(
+                        value="",
+                        label="Registry name (optional)",
+                    )
+                    .props("dense outlined")
+                    .classes("w-40")
+                )
                 ui.button(
-                    "Export selection", icon="file_save",
+                    "Export selection",
+                    icon="file_save",
                     on_click=lambda _=None: self._on_export_selection(
                         self.export_sel_path.value or "",
                         self.export_sel_name.value or "",

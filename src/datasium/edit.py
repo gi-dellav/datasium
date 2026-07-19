@@ -65,7 +65,10 @@ def cast_column(lf: pl.LazyFrame, column: str, target: pl.DataType) -> pl.LazyFr
 
 
 def add_column(
-    lf: pl.LazyFrame, name: str, target: pl.DataType, raw_fill: str,
+    lf: pl.LazyFrame,
+    name: str,
+    target: pl.DataType,
+    raw_fill: str,
 ) -> pl.LazyFrame:
     """Append a new column of ``target`` dtype, filled with ``raw_fill`` (or null)."""
     if not name or not name.strip():
@@ -93,7 +96,11 @@ def add_row(lf: pl.LazyFrame, values: dict[str, str]) -> pl.LazyFrame:
 
 
 def set_cell_by_index(
-    lf: pl.LazyFrame, index: int, column: str, raw: str, dtype: pl.DataType,
+    lf: pl.LazyFrame,
+    index: int,
+    column: str,
+    raw: str,
+    dtype: pl.DataType,
 ) -> pl.LazyFrame:
     """Set ``column`` of the 0-based ``index``-th row to ``raw`` (coerced)."""
     height = lf.select(pl.len()).collect().item()
@@ -112,7 +119,9 @@ def set_cell_by_index(
 
 
 def count_matches(
-    lf: pl.LazyFrame, key_cols: list[str], key_vals: list[str],
+    lf: pl.LazyFrame,
+    key_cols: list[str],
+    key_vals: list[str],
 ) -> int:
     """Number of rows where every ``key_col`` equals its ``key_val`` (coerced)."""
     if not key_cols:
@@ -160,13 +169,18 @@ def set_cell_by_key(
         )
     value = _coerce_or_none(raw, dtype)
     return lf.with_columns(
-        pl.when(key_expr).then(pl.lit(value).cast(dtype)).otherwise(pl.col(column)).alias(column)
+        pl.when(key_expr)
+        .then(pl.lit(value).cast(dtype))
+        .otherwise(pl.col(column))
+        .alias(column)
     )
 
 
 def fill_nulls(
-    lf: pl.LazyFrame, column: str,
-    strategy: str = "value", fill_value: str = "",
+    lf: pl.LazyFrame,
+    column: str,
+    strategy: str = "value",
+    fill_value: str = "",
     dtype: pl.DataType | None = None,
 ) -> pl.LazyFrame:
     """Fill nulls in *column* using *strategy* (value / forward / backward / mean /
@@ -208,7 +222,10 @@ def fill_nulls(
 
 
 def replace_values(
-    lf: pl.LazyFrame, column: str, old_raw: str, new_raw: str,
+    lf: pl.LazyFrame,
+    column: str,
+    old_raw: str,
+    new_raw: str,
     dtype: pl.DataType | None = None,
 ) -> pl.LazyFrame:
     """Replace every occurrence of *old_raw* with *new_raw* in *column*.
@@ -299,41 +316,67 @@ class EditPanel:
         ui.label("Edit column type").classes("text-lg font-medium")
         ui.label("Cast a column to a different dtype.").classes("text-xs opacity-50")
         with ui.row().classes("items-center gap-2 w-full"):
-            self.cast_col = ui.select(
-                options={n: n for n in self._col_names} or {"—": "—"},
-                value=self._col_names[0] if self._col_names else None,
-                label="Column",
-            ).props("dense outlined").classes("w-40")
-            self.cast_dtype = ui.select(
-                options={k: lbl for lbl, k, _ in DTYPE_CHOICES},
-                value="int",
-                label="Target type",
-            ).props("dense outlined").classes("w-48")
+            self.cast_col = (
+                ui.select(
+                    options={n: n for n in self._col_names} or {"—": "—"},
+                    value=self._col_names[0] if self._col_names else None,
+                    label="Column",
+                )
+                .props("dense outlined")
+                .classes("w-40")
+            )
+            self.cast_dtype = (
+                ui.select(
+                    options={k: lbl for lbl, k, _ in DTYPE_CHOICES},
+                    value="int",
+                    label="Target type",
+                )
+                .props("dense outlined")
+                .classes("w-48")
+            )
             ui.button(
-                "Cast", icon="swap_horiz",
+                "Cast",
+                icon="swap_horiz",
                 on_click=lambda _=None: self._on_cast(
-                    self.cast_col.value, self.cast_dtype.value),
+                    self.cast_col.value, self.cast_dtype.value
+                ),
             ).props("dense unelevated color=primary")
 
     # ---- 2. add column --------------------------------------------------
     def _build_add_column_section(self) -> None:
         ui.label("Add column").classes("text-lg font-medium mt-2")
-        ui.label(
-            "Append a new column. Leave the fill value blank for nulls."
-        ).classes("text-xs opacity-50")
+        ui.label("Append a new column. Leave the fill value blank for nulls.").classes(
+            "text-xs opacity-50"
+        )
         with ui.row().classes("items-center gap-2 w-full"):
-            self.add_col_name = ui.input(
-                value="", label="New column name",
-            ).props("dense outlined").classes("w-40")
-            self.add_col_dtype = ui.select(
-                options={k: lbl for lbl, k, _ in DTYPE_CHOICES},
-                value="int", label="Type",
-            ).props("dense outlined").classes("w-48")
-            self.add_col_fill = ui.input(
-                value="", label="Fill value (optional)",
-            ).props("dense outlined").classes("w-40")
+            self.add_col_name = (
+                ui.input(
+                    value="",
+                    label="New column name",
+                )
+                .props("dense outlined")
+                .classes("w-40")
+            )
+            self.add_col_dtype = (
+                ui.select(
+                    options={k: lbl for lbl, k, _ in DTYPE_CHOICES},
+                    value="int",
+                    label="Type",
+                )
+                .props("dense outlined")
+                .classes("w-48")
+            )
+            self.add_col_fill = (
+                ui.input(
+                    value="",
+                    label="Fill value (optional)",
+                )
+                .props("dense outlined")
+                .classes("w-40")
+            )
             ui.button(
-                "Add column", icon="add",
+                "Add column",
+                icon="add",
                 on_click=lambda _=None: self._on_add_column(
                     self.add_col_name.value or "",
                     self.add_col_dtype.value,
@@ -351,13 +394,20 @@ class EditPanel:
         with ui.row().classes("items-start gap-2 w-full flex-wrap"):
             for name, dtype in self._columns:
                 lbl = f"{name} · {dtype}"
-                self.add_row_inputs[name] = ui.input(
-                    value="", label=lbl,
-                ).props("dense outlined").classes("w-40")
+                self.add_row_inputs[name] = (
+                    ui.input(
+                        value="",
+                        label=lbl,
+                    )
+                    .props("dense outlined")
+                    .classes("w-40")
+                )
         ui.button(
-            "Add row", icon="add_box",
+            "Add row",
+            icon="add_box",
             on_click=lambda _=None: self._on_add_row(
-                {n: (i.value or "") for n, i in self.add_row_inputs.items()}),
+                {n: (i.value or "") for n, i in self.add_row_inputs.items()}
+            ),
         ).props("dense unelevated color=primary").classes("mt-2")
 
     # ---- 4. edit row -----------------------------------------------------
@@ -371,7 +421,8 @@ class EditPanel:
         with ui.row().classes("items-center gap-2 w-full"):
             ui.label("Select row by").classes("text-sm opacity-70 w-28")
             self.row_mode = ui.toggle(
-                _EDIT_ROW_MODES, value="index",
+                _EDIT_ROW_MODES,
+                value="index",
                 on_change=lambda _e: self._refresh_row_mode(),
             ).props("dense")
 
@@ -380,17 +431,27 @@ class EditPanel:
 
         ui.separator().classes("my-2")
         with ui.row().classes("items-center gap-2 w-full"):
-            self.edit_col = ui.select(
-                options={n: n for n in self._col_names} or {"—": "—"},
-                value=self._col_names[0] if self._col_names else None,
-                label="Column to set",
-                on_change=lambda _e: self._refresh_edit_col_hint(),
-            ).props("dense outlined").classes("w-40")
-            self.edit_val = ui.input(
-                value="", label="New value",
-            ).props("dense outlined").classes("w-40")
+            self.edit_col = (
+                ui.select(
+                    options={n: n for n in self._col_names} or {"—": "—"},
+                    value=self._col_names[0] if self._col_names else None,
+                    label="Column to set",
+                    on_change=lambda _e: self._refresh_edit_col_hint(),
+                )
+                .props("dense outlined")
+                .classes("w-40")
+            )
+            self.edit_val = (
+                ui.input(
+                    value="",
+                    label="New value",
+                )
+                .props("dense outlined")
+                .classes("w-40")
+            )
             ui.button(
-                "Apply edit", icon="check",
+                "Apply edit",
+                icon="check",
                 on_click=lambda _=None: self._submit_edit(),
             ).props("dense unelevated color=primary")
         self.edit_col_hint = ui.label("").classes("text-xs opacity-50")
@@ -401,15 +462,28 @@ class EditPanel:
         mode = self.row_mode.value or "index"
         with self.row_mode_box:
             if mode == "index":
-                self.row_index = ui.number(
-                    value=1, label="Row number (1-based)", min=1,
-                ).props("dense outlined").classes("w-40")
+                self.row_index = (
+                    ui.number(
+                        value=1,
+                        label="Row number (1-based)",
+                        min=1,
+                    )
+                    .props("dense outlined")
+                    .classes("w-40")
+                )
             else:
-                self.key_cols = ui.select(
-                    options={n: n for n in self._col_names} or {"—": "—"},
-                    multiple=True, value=[], clearable=True, label="Key columns",
-                    on_change=lambda _e: self._refresh_key_inputs(),
-                ).props("dense outlined use-chips").classes("w-full")
+                self.key_cols = (
+                    ui.select(
+                        options={n: n for n in self._col_names} or {"—": "—"},
+                        multiple=True,
+                        value=[],
+                        clearable=True,
+                        label="Key columns",
+                        on_change=lambda _e: self._refresh_key_inputs(),
+                    )
+                    .props("dense outlined use-chips")
+                    .classes("w-full")
+                )
                 self.key_inputs_box = ui.column().classes("w-full gap-1 mt-1")
                 self._refresh_key_inputs()
 
@@ -421,7 +495,9 @@ class EditPanel:
         self.key_value_inputs: dict[str, ui.input] = {}
         if not cols:
             with self.key_inputs_box:
-                ui.label("Select one or more key columns.").classes("text-sm opacity-50")
+                ui.label("Select one or more key columns.").classes(
+                    "text-sm opacity-50"
+                )
             return
         with self.key_inputs_box:
             with ui.row().classes("items-start gap-2 flex-wrap"):
@@ -430,9 +506,14 @@ class EditPanel:
                     lbl = f"{name} == (value)"
                     if dtype is not None:
                         lbl = f"{name} ({dtype})"
-                    self.key_value_inputs[name] = ui.input(
-                        value="", label=lbl,
-                    ).props("dense outlined").classes("w-40")
+                    self.key_value_inputs[name] = (
+                        ui.input(
+                            value="",
+                            label=lbl,
+                        )
+                        .props("dense outlined")
+                        .classes("w-40")
+                    )
 
     def _refresh_edit_col_hint(self) -> None:
         name = self.edit_col.value
@@ -447,42 +528,67 @@ class EditPanel:
         if mode == "index":
             idx = int(self.row_index.value) if self.row_index.value else 1
             self._on_edit_row(
-                "index", idx - 1, [], [],
-                self.edit_col.value, self.edit_val.value or "",
+                "index",
+                idx - 1,
+                [],
+                [],
+                self.edit_col.value,
+                self.edit_val.value or "",
             )
         else:
             cols = list(self.key_cols.value or [])
             if not cols:
-                ui.notify("select at least one key column", type="warning", position="top")
+                ui.notify(
+                    "select at least one key column", type="warning", position="top"
+                )
                 return
             vals = [self.key_value_inputs.get(c).value or "" for c in cols]  # type: ignore[union-attr]
             self._on_edit_row(
-                "keys", None, cols, vals,
-                self.edit_col.value, self.edit_val.value or "",
+                "keys",
+                None,
+                cols,
+                vals,
+                self.edit_col.value,
+                self.edit_val.value or "",
             )
 
     # ---- 5. fill nulls ---------------------------------------------------
     def _build_fill_nulls_section(self) -> None:
         ui.label("Fill nulls").classes("text-lg font-medium mt-2")
-        ui.label(
-            "Replace null values in a column using a strategy."
-        ).classes("text-xs opacity-50")
+        ui.label("Replace null values in a column using a strategy.").classes(
+            "text-xs opacity-50"
+        )
         with ui.row().classes("items-center gap-2 w-full"):
-            self.fill_col = ui.select(
-                options={n: n for n in self._col_names} or {"—": "—"},
-                value=self._col_names[0] if self._col_names else None,
-                label="Column",
-            ).props("dense outlined").classes("w-40")
-            self.fill_strategy = ui.select(
-                options={k: lbl for lbl, k in _FILL_STRATEGIES},
-                value="value", label="Strategy",
-                on_change=lambda _e: self._refresh_fill_vis(),
-            ).props("dense outlined").classes("w-48")
-            self.fill_value = ui.input(
-                value="", label="Fill value",
-            ).props("dense outlined").classes("w-32")
+            self.fill_col = (
+                ui.select(
+                    options={n: n for n in self._col_names} or {"—": "—"},
+                    value=self._col_names[0] if self._col_names else None,
+                    label="Column",
+                )
+                .props("dense outlined")
+                .classes("w-40")
+            )
+            self.fill_strategy = (
+                ui.select(
+                    options={k: lbl for lbl, k in _FILL_STRATEGIES},
+                    value="value",
+                    label="Strategy",
+                    on_change=lambda _e: self._refresh_fill_vis(),
+                )
+                .props("dense outlined")
+                .classes("w-48")
+            )
+            self.fill_value = (
+                ui.input(
+                    value="",
+                    label="Fill value",
+                )
+                .props("dense outlined")
+                .classes("w-32")
+            )
             ui.button(
-                "Fill nulls", icon="water_drop",
+                "Fill nulls",
+                icon="water_drop",
                 on_click=lambda _=None: self._on_fill_nulls(
                     self.fill_col.value or "",
                     self.fill_strategy.value or "value",
@@ -503,19 +609,34 @@ class EditPanel:
             "Leave 'Old value' blank to target null cells."
         ).classes("text-xs opacity-50")
         with ui.row().classes("items-center gap-2 w-full"):
-            self.repl_col = ui.select(
-                options={n: n for n in self._col_names} or {"—": "—"},
-                value=self._col_names[0] if self._col_names else None,
-                label="Column",
-            ).props("dense outlined").classes("w-40")
-            self.repl_old = ui.input(
-                value="", label="Old value (blank for null)",
-            ).props("dense outlined").classes("w-40")
-            self.repl_new = ui.input(
-                value="", label="New value",
-            ).props("dense outlined").classes("w-40")
+            self.repl_col = (
+                ui.select(
+                    options={n: n for n in self._col_names} or {"—": "—"},
+                    value=self._col_names[0] if self._col_names else None,
+                    label="Column",
+                )
+                .props("dense outlined")
+                .classes("w-40")
+            )
+            self.repl_old = (
+                ui.input(
+                    value="",
+                    label="Old value (blank for null)",
+                )
+                .props("dense outlined")
+                .classes("w-40")
+            )
+            self.repl_new = (
+                ui.input(
+                    value="",
+                    label="New value",
+                )
+                .props("dense outlined")
+                .classes("w-40")
+            )
             ui.button(
-                "Replace", icon="find_replace",
+                "Replace",
+                icon="find_replace",
                 on_click=lambda _=None: self._on_replace_values(
                     self.repl_col.value or "",
                     self.repl_old.value or "",

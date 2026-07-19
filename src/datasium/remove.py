@@ -37,8 +37,8 @@ class RemovalSpec:
     value_op: str | None = None
     value_raw: str = ""
     null_subset: list[str] | None = None  # None => every column
-    dup_subset: list[str] | None = None   # None => all columns
-    dup_keep: str = "first"               # first / last / none
+    dup_subset: list[str] | None = None  # None => all columns
+    dup_keep: str = "first"  # first / last / none
     selection_expr: pl.Expr | None = None
 
 
@@ -58,7 +58,10 @@ def remove_columns(lf: pl.LazyFrame, cols: list[str]) -> pl.LazyFrame:
 
 
 def remove_rows_by_value(
-    lf: pl.LazyFrame, column: str | None, op: str | None, raw: str,
+    lf: pl.LazyFrame,
+    column: str | None,
+    op: str | None,
+    raw: str,
 ) -> pl.LazyFrame:
     """Remove rows where ``column`` matches the value term (built via filter.build_term)."""
     if not column:
@@ -71,7 +74,8 @@ def remove_rows_by_value(
 
 
 def remove_nulls(
-    lf: pl.LazyFrame, subset: list[str] | None = None,
+    lf: pl.LazyFrame,
+    subset: list[str] | None = None,
 ) -> pl.LazyFrame:
     """Drop rows that are null in ``subset`` (or in any column when ``None``/empty)."""
     if not subset:
@@ -83,7 +87,9 @@ def remove_nulls(
 
 
 def remove_duplicates(
-    lf: pl.LazyFrame, subset: list[str] | None = None, keep: str = "first",
+    lf: pl.LazyFrame,
+    subset: list[str] | None = None,
+    keep: str = "first",
 ) -> pl.LazyFrame:
     """Drop duplicate rows.
 
@@ -131,7 +137,9 @@ def apply_removal(lf: pl.LazyFrame, spec: RemovalSpec) -> pl.LazyFrame:
 # ---------------------------------------------------------------------------
 # UI component
 # ---------------------------------------------------------------------------
-def _dtype_of(columns: list[tuple[str, pl.DataType]], name: str | None) -> pl.DataType | None:
+def _dtype_of(
+    columns: list[tuple[str, pl.DataType]], name: str | None
+) -> pl.DataType | None:
     for n, d in columns:
         if n == name:
             return d
@@ -159,22 +167,27 @@ class RemovePanel:
             # ---- Remove columns ----
             ui.label("Remove columns").classes("text-lg font-medium mt-2")
             ui.label("Pick one or more columns to drop from the dataset.").classes(
-                "text-xs opacity-50")
-            self.col_select = ui.select(
-                options={n: n for n in self.col_names} or {"—": "—"},
-                multiple=True,
-                value=[],
-                clearable=True,
-                label="Columns",
-            ).props("dense outlined use-chips").classes("w-full")
+                "text-xs opacity-50"
+            )
+            self.col_select = (
+                ui.select(
+                    options={n: n for n in self.col_names} or {"—": "—"},
+                    multiple=True,
+                    value=[],
+                    clearable=True,
+                    label="Columns",
+                )
+                .props("dense outlined use-chips")
+                .classes("w-full")
+            )
 
             ui.separator()
 
             # ---- Remove rows ----
             ui.label("Remove rows").classes("text-lg font-medium mt-2")
-            ui.label(
-                "Choose a strategy; rows matching the rule are removed."
-            ).classes("text-xs opacity-50")
+            ui.label("Choose a strategy; rows matching the rule are removed.").classes(
+                "text-xs opacity-50"
+            )
             self.mode_toggle = ui.toggle(
                 {
                     "none": "None",
@@ -194,11 +207,13 @@ class RemovePanel:
 
             with ui.row().classes("items-center gap-2 mt-2"):
                 ui.button(
-                    "Preview", icon="visibility",
+                    "Preview",
+                    icon="visibility",
                     on_click=lambda _=None: on_preview(),
                 ).props("dense unelevated color=primary")
                 ui.button(
-                    "Apply", icon="delete_forever",
+                    "Apply",
+                    icon="delete_forever",
                     on_click=lambda _=None: on_apply(),
                 ).props("dense unelevated color=negative")
 
@@ -228,36 +243,70 @@ class RemovePanel:
         ).classes("text-xs opacity-50")
         with ui.row().classes("items-center gap-2 w-full"):
             self.dup_all = ui.switch(
-                "All columns", value=True,
-                on_change=lambda _e: self.dup_subset.set_visibility(not self.dup_all.value),
+                "All columns",
+                value=True,
+                on_change=lambda _e: self.dup_subset.set_visibility(
+                    not self.dup_all.value
+                ),
             ).props("dense")
-            self.dup_subset = ui.select(
-                options={n: n for n in self.col_names} or {"—": "—"},
-                multiple=True, value=[], clearable=True, label="Columns",
-            ).props("dense outlined use-chips").classes("w-full")
+            self.dup_subset = (
+                ui.select(
+                    options={n: n for n in self.col_names} or {"—": "—"},
+                    multiple=True,
+                    value=[],
+                    clearable=True,
+                    label="Columns",
+                )
+                .props("dense outlined use-chips")
+                .classes("w-full")
+            )
             self.dup_subset.set_visibility(False)
         with ui.row().classes("items-center gap-2 w-full mt-1"):
             ui.label("Keep:").classes("text-sm")
-            self.dup_keep = ui.select(
-                {"first": "First occurrence", "last": "Last occurrence", "none": "None (drop all)"},
-                value="first", label="Keep",
-            ).props("dense outlined").classes("w-48")
+            self.dup_keep = (
+                ui.select(
+                    {
+                        "first": "First occurrence",
+                        "last": "Last occurrence",
+                        "none": "None (drop all)",
+                    },
+                    value="first",
+                    label="Keep",
+                )
+                .props("dense outlined")
+                .classes("w-48")
+            )
 
     def _build_values_inputs(self) -> None:
         with ui.row().classes("items-center gap-2 w-full"):
-            self.val_col = ui.select(
-                options={n: n for n in self.col_names} or {"—": "—"},
-                value=self.col_names[0] if self.col_names else None,
-                label="Column",
-                on_change=lambda _e: self._refresh_value_ops(),
-            ).props("dense outlined").classes("w-40")
-            self.val_op = ui.select(
-                options=[], value=None, label="Remove rows where",
-                on_change=lambda _e: self._refresh_value_vis(),
-            ).props("dense outlined").classes("w-40")
-            self.val_raw = ui.input(
-                value="", label="Value",
-            ).props("dense outlined").classes("w-32")
+            self.val_col = (
+                ui.select(
+                    options={n: n for n in self.col_names} or {"—": "—"},
+                    value=self.col_names[0] if self.col_names else None,
+                    label="Column",
+                    on_change=lambda _e: self._refresh_value_ops(),
+                )
+                .props("dense outlined")
+                .classes("w-40")
+            )
+            self.val_op = (
+                ui.select(
+                    options=[],
+                    value=None,
+                    label="Remove rows where",
+                    on_change=lambda _e: self._refresh_value_vis(),
+                )
+                .props("dense outlined")
+                .classes("w-40")
+            )
+            self.val_raw = (
+                ui.input(
+                    value="",
+                    label="Value",
+                )
+                .props("dense outlined")
+                .classes("w-32")
+            )
         self._refresh_value_ops()
 
     def _refresh_value_ops(self) -> None:
@@ -277,13 +326,23 @@ class RemovePanel:
 
     def _build_nulls_inputs(self) -> None:
         self.null_all = ui.switch(
-            "All columns", value=True,
-            on_change=lambda _e: self.null_subset.set_visibility(not self.null_all.value),
+            "All columns",
+            value=True,
+            on_change=lambda _e: self.null_subset.set_visibility(
+                not self.null_all.value
+            ),
         ).props("dense")
-        self.null_subset = ui.select(
-            options={n: n for n in self.col_names} or {"—": "—"},
-            multiple=True, value=[], clearable=True, label="Columns",
-        ).props("dense outlined use-chips").classes("w-full")
+        self.null_subset = (
+            ui.select(
+                options={n: n for n in self.col_names} or {"—": "—"},
+                multiple=True,
+                value=[],
+                clearable=True,
+                label="Columns",
+            )
+            .props("dense outlined use-chips")
+            .classes("w-full")
+        )
         self.null_subset.set_visibility(False)
 
     # ---- public ---------------------------------------------------------

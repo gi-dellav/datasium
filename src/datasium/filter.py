@@ -22,9 +22,16 @@ def _dtype_group(dtype: pl.DataType) -> str:
     """Coarse classification of a Polars dtype for operator selection."""
     base = dtype.base_type()
     numeric = {
-        pl.Int8, pl.Int16, pl.Int32, pl.Int64,
-        pl.UInt8, pl.UInt16, pl.UInt32, pl.UInt64,
-        pl.Float32, pl.Float64,
+        pl.Int8,
+        pl.Int16,
+        pl.Int32,
+        pl.Int64,
+        pl.UInt8,
+        pl.UInt16,
+        pl.UInt32,
+        pl.UInt64,
+        pl.Float32,
+        pl.Float64,
     }
     if base in numeric:
         return "numeric"
@@ -40,36 +47,58 @@ def _dtype_group(dtype: pl.DataType) -> str:
 # (label, key) per group. The key is interpreted by _build_term.
 _OPERATORS: dict[str, list[tuple[str, str]]] = {
     "numeric": [
-        ("equals", "eq"), ("not equals", "ne"),
-        (">", "gt"), (">=", "ge"), ("<", "lt"), ("<=", "le"),
-        ("between", "between"), ("not between", "not_between"),
+        ("equals", "eq"),
+        ("not equals", "ne"),
+        (">", "gt"),
+        (">=", "ge"),
+        ("<", "lt"),
+        ("<=", "le"),
+        ("between", "between"),
+        ("not between", "not_between"),
         ("is in", "is_in"),
-        ("is null", "is_null"), ("is not null", "is_not_null"),
-        ("is NaN", "is_nan"), ("is not NaN", "is_not_nan"),
+        ("is null", "is_null"),
+        ("is not null", "is_not_null"),
+        ("is NaN", "is_nan"),
+        ("is not NaN", "is_not_nan"),
     ],
     "string": [
-        ("equals", "eq"), ("not equals", "ne"),
-        ("contains", "contains"), ("not contains", "not_contains"),
-        ("starts with", "starts_with"), ("ends with", "ends_with"),
+        ("equals", "eq"),
+        ("not equals", "ne"),
+        ("contains", "contains"),
+        ("not contains", "not_contains"),
+        ("starts with", "starts_with"),
+        ("ends with", "ends_with"),
         ("matches regex", "regex"),
         ("is in", "is_in"),
         ("length equals", "str_len_eq"),
-        ("length >", "str_len_gt"), ("length <", "str_len_lt"),
-        ("is null", "is_null"), ("is not null", "is_not_null"),
+        ("length >", "str_len_gt"),
+        ("length <", "str_len_lt"),
+        ("is null", "is_null"),
+        ("is not null", "is_not_null"),
     ],
     "boolean": [
-        ("is true", "is_true"), ("is false", "is_false"),
-        ("is null", "is_null"), ("is not null", "is_not_null"),
+        ("is true", "is_true"),
+        ("is false", "is_false"),
+        ("is null", "is_null"),
+        ("is not null", "is_not_null"),
     ],
     "temporal": [
-        ("equals", "eq"), ("not equals", "ne"),
-        (">", "gt"), (">=", "ge"), ("<", "lt"), ("<=", "le"),
-        ("between", "between"), ("not between", "not_between"),
-        ("is null", "is_null"), ("is not null", "is_not_null"),
+        ("equals", "eq"),
+        ("not equals", "ne"),
+        (">", "gt"),
+        (">=", "ge"),
+        ("<", "lt"),
+        ("<=", "le"),
+        ("between", "between"),
+        ("not between", "not_between"),
+        ("is null", "is_null"),
+        ("is not null", "is_not_null"),
     ],
     "other": [
-        ("equals", "eq"), ("not equals", "ne"),
-        ("is null", "is_null"), ("is not null", "is_not_null"),
+        ("equals", "eq"),
+        ("not equals", "ne"),
+        ("is null", "is_null"),
+        ("is not null", "is_not_null"),
     ],
 }
 
@@ -95,19 +124,35 @@ class FilterRow:
 
         with parent:
             with ui.row().classes("items-center gap-2 w-full"):
-                self.col_select = ui.select(
-                    options={n: n for n, _ in columns} or {"—": "—"},
-                    value=columns[0][0] if columns else None,
-                    on_change=self._on_col_change,
-                ).props("dense outlined").classes("w-40")
-                self.op_select = ui.select(
-                    options=[], value=None, on_change=self._on_op_change,
-                ).props("dense outlined").classes("w-32")
-                self.value_input = ui.input(
-                    value="", on_change=lambda _e: on_change(),
-                ).props("dense outlined").classes("w-40")
-                ui.button(icon="close", on_click=lambda _=None, r=self: on_remove(r)) \
-                    .props("flat round dense color=negative").tooltip("Remove filter")
+                self.col_select = (
+                    ui.select(
+                        options={n: n for n, _ in columns} or {"—": "—"},
+                        value=columns[0][0] if columns else None,
+                        on_change=self._on_col_change,
+                    )
+                    .props("dense outlined")
+                    .classes("w-40")
+                )
+                self.op_select = (
+                    ui.select(
+                        options=[],
+                        value=None,
+                        on_change=self._on_op_change,
+                    )
+                    .props("dense outlined")
+                    .classes("w-32")
+                )
+                self.value_input = (
+                    ui.input(
+                        value="",
+                        on_change=lambda _e: on_change(),
+                    )
+                    .props("dense outlined")
+                    .classes("w-40")
+                )
+                ui.button(
+                    icon="close", on_click=lambda _=None, r=self: on_remove(r)
+                ).props("flat round dense color=negative").tooltip("Remove filter")
 
         # Initialise operator list for the default column.
         self._refresh_operators()
@@ -160,7 +205,10 @@ class FilterRow:
 
 
 def build_term(
-    name: str, op: str | None, raw: str, dtype: pl.DataType | None,
+    name: str,
+    op: str | None,
+    raw: str,
+    dtype: pl.DataType | None,
 ) -> pl.Expr:
     """Compile a single column/operator/value row into a Polars expression.
 
@@ -191,7 +239,8 @@ def build_term(
         parts = [v.strip() for v in (raw or "").split(",")]
         if len(parts) != 2 or not parts[0] or not parts[1]:
             raise ValueError(
-                f"{name}: 'between' needs two comma-separated values, e.g. '10, 50'")
+                f"{name}: 'between' needs two comma-separated values, e.g. '10, 50'"
+            )
         lo = _coerce(parts[0], dtype)
         hi = _coerce(parts[1], dtype)
         expr = col.is_between(lo, hi, closed="both")
@@ -262,15 +311,21 @@ class FilterBuilder:
 
         with container:
             with ui.row().classes("items-center gap-2 w-full"):
-                self._combinator_select = ui.toggle(
-                    {"all": "Match ALL (and)", "any": "Match ANY (or)"},
-                    value=combinator,
-                ).props("dense").tooltip("How rows are combined")
+                self._combinator_select = (
+                    ui.toggle(
+                        {"all": "Match ALL (and)", "any": "Match ANY (or)"},
+                        value=combinator,
+                    )
+                    .props("dense")
+                    .tooltip("How rows are combined")
+                )
                 ui.space()
-                ui.button("Add filter", icon="add", on_click=lambda _=None: self.add_row()) \
-                    .props("dense unelevated color=primary")
-                ui.button("Clear", icon="delete_sweep", on_click=lambda _=None: self.clear()) \
-                    .props("dense flat color=negative")
+                ui.button(
+                    "Add filter", icon="add", on_click=lambda _=None: self.add_row()
+                ).props("dense unelevated color=primary")
+                ui.button(
+                    "Clear", icon="delete_sweep", on_click=lambda _=None: self.clear()
+                ).props("dense flat color=negative")
             self.rows_box = ui.column().classes("w-full gap-1 mt-1")
 
         self.add_row()
@@ -289,7 +344,10 @@ class FilterBuilder:
 
     def add_row(self) -> None:
         row = FilterRow(
-            self.rows_box, self._columns, self._notify, self._remove_row,
+            self.rows_box,
+            self._columns,
+            self._notify,
+            self._remove_row,
         )
         self._rows.append(row)
 

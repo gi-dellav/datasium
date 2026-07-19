@@ -77,7 +77,9 @@ def test_add_column_no_name(lf):
 # add_row
 # ---------------------------------------------------------------------------
 def test_add_row_appends(lf):
-    out = add_row(lf, {"name": "Zed", "age": "42", "city": "Rome", "score": "1.5"}).collect()
+    out = add_row(
+        lf, {"name": "Zed", "age": "42", "city": "Rome", "score": "1.5"}
+    ).collect()
     assert out.height == 9
     last = out.row(8, named=True)
     assert last["name"] == "Zed"
@@ -137,7 +139,12 @@ def test_set_cell_by_index_unknown_column(lf):
 # ---------------------------------------------------------------------------
 def test_set_cell_by_key_updates_unique_row(lf):
     out = set_cell_by_key(
-        lf, ["name"], ["Ada"], "score", "10.0", pl.Float64,
+        lf,
+        ["name"],
+        ["Ada"],
+        "score",
+        "10.0",
+        pl.Float64,
     ).collect()
     ada = out.filter(pl.col("name") == "Ada")
     assert ada["score"].item() == 10.0
@@ -147,7 +154,12 @@ def test_set_cell_by_key_updates_unique_row(lf):
 
 def test_set_cell_by_key_multi_column(lf):
     out = set_cell_by_key(
-        lf, ["name", "age"], ["Ada", "30"], "city", "Berlin", pl.String,
+        lf,
+        ["name", "age"],
+        ["Ada", "30"],
+        "city",
+        "Berlin",
+        pl.String,
     ).collect()
     assert out.filter(pl.col("name") == "Ada")["city"].item() == "Berlin"
 
@@ -195,12 +207,14 @@ def null_lf() -> pl.LazyFrame:
 
 def test_fill_nulls_value(null_lf):
     from datasium.edit import fill_nulls
+
     out = fill_nulls(null_lf, "a", "value", "99").collect()
     assert out["a"].to_list() == [1, 99, 3, 99, 5]
 
 
 def test_fill_nulls_value_blank_is_noop(null_lf):
     from datasium.edit import fill_nulls
+
     # blank fill_value -> no-op, frame unchanged
     out = fill_nulls(null_lf, "a", "value", "").collect()
     assert out["a"].null_count() == 2  # still null
@@ -209,30 +223,35 @@ def test_fill_nulls_value_blank_is_noop(null_lf):
 
 def test_fill_nulls_string_value(null_lf):
     from datasium.edit import fill_nulls
+
     out = fill_nulls(null_lf, "b", "value", "replaced").collect()
     assert out["b"].to_list() == ["x", "replaced", "z", "replaced", "w"]
 
 
 def test_fill_nulls_forward(null_lf):
     from datasium.edit import fill_nulls
+
     out = fill_nulls(null_lf, "a", "forward").collect()
     assert out["a"].to_list() == [1, 1, 3, 3, 5]
 
 
 def test_fill_nulls_backward(null_lf):
     from datasium.edit import fill_nulls
+
     out = fill_nulls(null_lf, "a", "backward").collect()
     assert out["a"].to_list() == [1, 3, 3, 5, 5]
 
 
 def test_fill_nulls_zero(null_lf):
     from datasium.edit import fill_nulls
+
     out = fill_nulls(null_lf, "a", "zero").collect()
     assert out["a"].to_list() == [1, 0, 3, 0, 5]
 
 
 def test_fill_nulls_min_max(null_lf):
     from datasium.edit import fill_nulls
+
     out_min = fill_nulls(null_lf, "a", "min").collect()
     assert out_min["a"].to_list() == [1, 1, 3, 1, 5]
     out_max = fill_nulls(null_lf, "a", "max").collect()
@@ -241,6 +260,7 @@ def test_fill_nulls_min_max(null_lf):
 
 def test_fill_nulls_mean_median(null_lf):
     from datasium.edit import fill_nulls
+
     # mean: (1+3+5)/3 = 3.0
     out_mean = fill_nulls(null_lf, "a", "mean").collect()
     assert out_mean["a"].to_list() == [1, 3.0, 3, 3.0, 5]
@@ -251,6 +271,7 @@ def test_fill_nulls_mean_median(null_lf):
 
 def test_fill_nulls_mode():
     from datasium.edit import fill_nulls
+
     # Dataset with a clear mode: 7 appears twice
     df = pl.DataFrame({"a": [7, 7, 1, None, 3, None]})
     out = fill_nulls(df.lazy(), "a", "mode").collect()
@@ -261,12 +282,14 @@ def test_fill_nulls_mode():
 
 def test_fill_nulls_unknown_column(null_lf):
     from datasium.edit import fill_nulls
+
     with pytest.raises(ValueError, match="not found"):
         fill_nulls(null_lf, "bogus", "value", "1")
 
 
 def test_fill_nulls_unknown_strategy(null_lf):
     from datasium.edit import fill_nulls
+
     with pytest.raises(ValueError, match="unknown fill strategy"):
         fill_nulls(null_lf, "a", "bogus")
 
@@ -276,13 +299,18 @@ def test_fill_nulls_unknown_strategy(null_lf):
 # ---------------------------------------------------------------------------
 def test_replace_values_basic(lf):
     from datasium.edit import replace_values
+
     out = replace_values(lf, "city", "London", "Londra").collect()
     assert set(out.filter(pl.col("city") == "Londra")["name"].to_list()) == {
-        "Ada", "Cy", "Gio"}
+        "Ada",
+        "Cy",
+        "Gio",
+    }
 
 
 def test_replace_values_numeric(lf):
     from datasium.edit import replace_values
+
     out = replace_values(lf, "age", "30", "31").collect()
     ada = out.filter(pl.col("name") == "Ada")
     assert ada["age"].item() == 31
@@ -292,17 +320,20 @@ def test_replace_values_null_target(lf):
     # replace nulls: blank old_raw targets null cells
     df = pl.DataFrame({"a": [1, None, 3], "b": ["x", "y", "z"]})
     from datasium.edit import replace_values
+
     out = replace_values(df.lazy(), "a", "", "99").collect()
     assert out["a"].to_list() == [1, 99, 3]
 
 
 def test_replace_values_no_match_is_noop(lf):
     from datasium.edit import replace_values
+
     out = replace_values(lf, "city", "NonExistent", "X").collect()
     assert out.shape == lf.collect().shape
 
 
 def test_replace_values_unknown_column(lf):
     from datasium.edit import replace_values
+
     with pytest.raises(ValueError, match="not found"):
         replace_values(lf, "bogus", "x", "y")

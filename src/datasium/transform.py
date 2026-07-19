@@ -226,8 +226,12 @@ def add_computed_column(
             raise ValueError("select a source column")
         a = _num(col_a)
         agg_map = {
-            "sum": a.sum, "mean": a.mean, "min": a.min, "max": a.max,
-            "median": a.median, "std": a.std,
+            "sum": a.sum,
+            "mean": a.mean,
+            "min": a.min,
+            "max": a.max,
+            "median": a.median,
+            "std": a.std,
         }
         if op == "count":
             expr = a.count().cast(pl.UInt32)
@@ -294,7 +298,9 @@ def add_computed_column(
             expr = pl.when(a.is_null()).then(pl.lit(then_v)).otherwise(pl.lit(else_v))
         elif op == "cond_eq":
             threshold = _parse_literal(scalar)
-            expr = pl.when(a == threshold).then(pl.lit(then_v)).otherwise(pl.lit(else_v))
+            expr = (
+                pl.when(a == threshold).then(pl.lit(then_v)).otherwise(pl.lit(else_v))
+            )
         else:
             threshold = _scalar_f64(scalar)
             if op == "cond_gt":
@@ -371,9 +377,15 @@ def group_by_agg(
             raise ValueError(f"column {agg_col!r} not found")
         col = pl.col(agg_col)
         agg_map = {
-            "sum": col.sum, "mean": col.mean, "min": col.min,
-            "max": col.max, "median": col.median, "std": col.std,
-            "first": col.first, "last": col.last, "n_unique": col.n_unique,
+            "sum": col.sum,
+            "mean": col.mean,
+            "min": col.min,
+            "max": col.max,
+            "median": col.median,
+            "std": col.std,
+            "first": col.first,
+            "last": col.last,
+            "n_unique": col.n_unique,
         }
         if agg_op not in agg_map:
             raise ValueError(f"unknown aggregation {agg_op!r}")
@@ -395,7 +407,10 @@ class TransformPanel:
         *,
         on_sort: Callable[[list[str], list[bool]], None],
         on_rename: Callable[[str, str], None],
-        on_computed: Callable[[str, str, str, str | None, str | None, str | None, str | None, str | None], None],
+        on_computed: Callable[
+            [str, str, str, str | None, str | None, str | None, str | None, str | None],
+            None,
+        ],
         on_group_by: Callable[[list[str], str | None, str, str], None],
     ) -> None:
         self._columns = columns
@@ -420,11 +435,18 @@ class TransformPanel:
         ui.label(
             "Sort rows by one or more columns. Toggle descending per column."
         ).classes("text-xs opacity-50")
-        self.sort_cols = ui.select(
-            options={n: n for n in self._col_names} or {"—": "—"},
-            multiple=True, value=[], clearable=True, label="Sort columns",
-            on_change=lambda _e: self._refresh_sort_desc(),
-        ).props("dense outlined use-chips").classes("w-full")
+        self.sort_cols = (
+            ui.select(
+                options={n: n for n in self._col_names} or {"—": "—"},
+                multiple=True,
+                value=[],
+                clearable=True,
+                label="Sort columns",
+                on_change=lambda _e: self._refresh_sort_desc(),
+            )
+            .props("dense outlined use-chips")
+            .classes("w-full")
+        )
         self.sort_desc_box = ui.row().classes("items-center gap-2 w-full mt-1")
         self._sort_desc_switches: dict[str, object] = {}
 
@@ -437,11 +459,13 @@ class TransformPanel:
         with self.sort_desc_box:
             for c in cols:
                 self._sort_desc_switches[c] = ui.switch(
-                    f"{c} desc", value=False,
+                    f"{c} desc",
+                    value=False,
                 ).props("dense")
         with self.sort_desc_box:
             ui.button(
-                "Sort", icon="sort",
+                "Sort",
+                icon="sort",
                 on_click=lambda _=None: self._submit_sort(),
             ).props("dense unelevated color=primary")
 
@@ -461,18 +485,29 @@ class TransformPanel:
         ui.label("Rename column").classes("text-lg font-medium mt-2")
         ui.label("Rename a column in the dataset.").classes("text-xs opacity-50")
         with ui.row().classes("items-center gap-2 w-full"):
-            self.rename_old = ui.select(
-                options={n: n for n in self._col_names} or {"—": "—"},
-                value=self._col_names[0] if self._col_names else None,
-                label="Column",
-            ).props("dense outlined").classes("w-40")
-            self.rename_new = ui.input(
-                value="", label="New name",
-            ).props("dense outlined").classes("w-40")
+            self.rename_old = (
+                ui.select(
+                    options={n: n for n in self._col_names} or {"—": "—"},
+                    value=self._col_names[0] if self._col_names else None,
+                    label="Column",
+                )
+                .props("dense outlined")
+                .classes("w-40")
+            )
+            self.rename_new = (
+                ui.input(
+                    value="",
+                    label="New name",
+                )
+                .props("dense outlined")
+                .classes("w-40")
+            )
             ui.button(
-                "Rename", icon="drive_file_rename_outline",
+                "Rename",
+                icon="drive_file_rename_outline",
                 on_click=lambda _=None: self._on_rename(
-                    self.rename_old.value or "", self.rename_new.value or ""),
+                    self.rename_old.value or "", self.rename_new.value or ""
+                ),
             ).props("dense unelevated color=primary")
 
     # ---- 3. computed column -----------------------------------------------
@@ -484,23 +519,40 @@ class TransformPanel:
         ).classes("text-xs opacity-50")
 
         with ui.row().classes("items-center gap-2 w-full flex-wrap"):
-            self.comp_category = ui.select(
-                options={k: v for k, v in CATEGORY_LABELS.items()},
-                value="arithmetic", label="Category",
-                on_change=lambda _e: self._refresh_comp_ops(),
-            ).props("dense outlined").classes("w-72")
-            self.comp_op = ui.select(
-                options={}, value=None, label="Operation",
-                on_change=lambda _e: self._refresh_comp_fields(),
-            ).props("dense outlined").classes("w-56")
+            self.comp_category = (
+                ui.select(
+                    options={k: v for k, v in CATEGORY_LABELS.items()},
+                    value="arithmetic",
+                    label="Category",
+                    on_change=lambda _e: self._refresh_comp_ops(),
+                )
+                .props("dense outlined")
+                .classes("w-72")
+            )
+            self.comp_op = (
+                ui.select(
+                    options={},
+                    value=None,
+                    label="Operation",
+                    on_change=lambda _e: self._refresh_comp_fields(),
+                )
+                .props("dense outlined")
+                .classes("w-56")
+            )
 
         self.comp_fields_box = ui.column().classes("w-full gap-2 mt-1")
         with ui.row().classes("items-center gap-2 w-full"):
-            self.comp_name = ui.input(
-                value="", label="New column name",
-            ).props("dense outlined").classes("w-48")
+            self.comp_name = (
+                ui.input(
+                    value="",
+                    label="New column name",
+                )
+                .props("dense outlined")
+                .classes("w-48")
+            )
             ui.button(
-                "Add column", icon="add_circle",
+                "Add column",
+                icon="add_circle",
                 on_click=lambda _=None: self._submit_computed(),
             ).props("dense unelevated color=primary")
 
@@ -523,64 +575,109 @@ class TransformPanel:
         with self.comp_fields_box:
             if cat == "arithmetic":
                 with ui.row().classes("items-center gap-2 w-full flex-wrap"):
-                    self._comp_col_a = ui.select(
-                        options={n: n for n in numeric} or {"—": "—"},
-                        value=numeric[0] if numeric else None,
-                        label="Column A",
-                    ).props("dense outlined").classes("w-40")
-                    self._comp_col_b = ui.select(
-                        options={n: n for n in numeric} or {"—": "—"},
-                        value=None, clearable=True,
-                        label="Column B (optional)",
-                    ).props("dense outlined").classes("w-40")
-                    self._comp_scalar = ui.input(
-                        value="", label="…or scalar value",
-                    ).props("dense outlined").classes("w-32")
+                    self._comp_col_a = (
+                        ui.select(
+                            options={n: n for n in numeric} or {"—": "—"},
+                            value=numeric[0] if numeric else None,
+                            label="Column A",
+                        )
+                        .props("dense outlined")
+                        .classes("w-40")
+                    )
+                    self._comp_col_b = (
+                        ui.select(
+                            options={n: n for n in numeric} or {"—": "—"},
+                            value=None,
+                            clearable=True,
+                            label="Column B (optional)",
+                        )
+                        .props("dense outlined")
+                        .classes("w-40")
+                    )
+                    self._comp_scalar = (
+                        ui.input(
+                            value="",
+                            label="…or scalar value",
+                        )
+                        .props("dense outlined")
+                        .classes("w-32")
+                    )
 
             elif cat in ("aggregation", "cumulative"):
                 with ui.row().classes("items-center gap-2 w-full"):
-                    self._comp_col_a = ui.select(
-                        options={n: n for n in numeric} or {"—": "—"},
-                        value=numeric[0] if numeric else None,
-                        label="Source column",
-                    ).props("dense outlined").classes("w-40")
+                    self._comp_col_a = (
+                        ui.select(
+                            options={n: n for n in numeric} or {"—": "—"},
+                            value=numeric[0] if numeric else None,
+                            label="Source column",
+                        )
+                        .props("dense outlined")
+                        .classes("w-40")
+                    )
 
             elif cat == "string":
                 with ui.row().classes("items-center gap-2 w-full"):
-                    self._comp_col_a = ui.select(
-                        options={n: n for n in all_names} or {"—": "—"},
-                        value=all_names[0] if all_names else None,
-                        label="Source column",
-                    ).props("dense outlined").classes("w-40")
+                    self._comp_col_a = (
+                        ui.select(
+                            options={n: n for n in all_names} or {"—": "—"},
+                            value=all_names[0] if all_names else None,
+                            label="Source column",
+                        )
+                        .props("dense outlined")
+                        .classes("w-40")
+                    )
 
             elif cat == "rank / index":
                 if op == "rank":
                     with ui.row().classes("items-center gap-2 w-full"):
-                        self._comp_col_a = ui.select(
-                            options={n: n for n in all_names} or {"—": "—"},
-                            value=all_names[0] if all_names else None,
-                            label="Rank by column",
-                        ).props("dense outlined").classes("w-40")
+                        self._comp_col_a = (
+                            ui.select(
+                                options={n: n for n in all_names} or {"—": "—"},
+                                value=all_names[0] if all_names else None,
+                                label="Rank by column",
+                            )
+                            .props("dense outlined")
+                            .classes("w-40")
+                        )
                 else:
                     ui.label("No extra inputs needed.").classes("text-sm opacity-50")
 
             elif cat == "conditional":
                 with ui.row().classes("items-center gap-2 w-full flex-wrap"):
-                    self._comp_col_a = ui.select(
-                        options={n: n for n in all_names} or {"—": "—"},
-                        value=all_names[0] if all_names else None,
-                        label="Condition column",
-                    ).props("dense outlined").classes("w-40")
+                    self._comp_col_a = (
+                        ui.select(
+                            options={n: n for n in all_names} or {"—": "—"},
+                            value=all_names[0] if all_names else None,
+                            label="Condition column",
+                        )
+                        .props("dense outlined")
+                        .classes("w-40")
+                    )
                     if op != "cond_null":
-                        self._comp_scalar = ui.input(
-                            value="", label="Threshold X",
-                        ).props("dense outlined").classes("w-32")
-                    self._comp_then = ui.input(
-                        value="", label="Then value",
-                    ).props("dense outlined").classes("w-32")
-                    self._comp_else = ui.input(
-                        value="", label="Else value",
-                    ).props("dense outlined").classes("w-32")
+                        self._comp_scalar = (
+                            ui.input(
+                                value="",
+                                label="Threshold X",
+                            )
+                            .props("dense outlined")
+                            .classes("w-32")
+                        )
+                    self._comp_then = (
+                        ui.input(
+                            value="",
+                            label="Then value",
+                        )
+                        .props("dense outlined")
+                        .classes("w-32")
+                    )
+                    self._comp_else = (
+                        ui.input(
+                            value="",
+                            label="Else value",
+                        )
+                        .props("dense outlined")
+                        .classes("w-32")
+                    )
 
     def _submit_computed(self) -> None:
         cat = self.comp_category.value or "arithmetic"
@@ -592,7 +689,9 @@ class TransformPanel:
         then_v = getattr(self, "_comp_then", None)
         else_v = getattr(self, "_comp_else", None)
         self._on_computed(
-            name, cat, op,
+            name,
+            cat,
+            op,
             col_a.value if col_a else None,
             col_b.value if col_b else None,
             scalar.value if scalar else None,
@@ -609,36 +708,68 @@ class TransformPanel:
         ).classes("text-xs opacity-50")
         numeric = [n for n, d in self._columns if _is_numeric(d)]
         with ui.row().classes("items-center gap-2 w-full flex-wrap"):
-            self.gb_cols = ui.select(
-                options={n: n for n in self._col_names} or {"—": "—"},
-                multiple=True, value=[], clearable=True, label="Group-by columns",
-            ).props("dense outlined use-chips").classes("w-64")
-            self.gb_agg_col = ui.select(
-                options={n: n for n in numeric} or {"—": "—"},
-                value=numeric[0] if numeric else None,
-                clearable=True, label="Aggregate column",
-            ).props("dense outlined").classes("w-40")
-            self.gb_agg_op = ui.select(
-                options={
-                    "mean": "mean", "sum": "sum", "min": "min", "max": "max",
-                    "median": "median", "std": "std dev", "count": "count (rows)",
-                    "first": "first", "last": "last", "n_unique": "n unique",
-                },
-                value="mean", label="Aggregation",
-            ).props("dense outlined").classes("w-40")
-            self.gb_out_name = ui.input(
-                value="", label="Output column name",
-                placeholder="e.g. avg_score",
-            ).props("dense outlined").classes("w-40")
+            self.gb_cols = (
+                ui.select(
+                    options={n: n for n in self._col_names} or {"—": "—"},
+                    multiple=True,
+                    value=[],
+                    clearable=True,
+                    label="Group-by columns",
+                )
+                .props("dense outlined use-chips")
+                .classes("w-64")
+            )
+            self.gb_agg_col = (
+                ui.select(
+                    options={n: n for n in numeric} or {"—": "—"},
+                    value=numeric[0] if numeric else None,
+                    clearable=True,
+                    label="Aggregate column",
+                )
+                .props("dense outlined")
+                .classes("w-40")
+            )
+            self.gb_agg_op = (
+                ui.select(
+                    options={
+                        "mean": "mean",
+                        "sum": "sum",
+                        "min": "min",
+                        "max": "max",
+                        "median": "median",
+                        "std": "std dev",
+                        "count": "count (rows)",
+                        "first": "first",
+                        "last": "last",
+                        "n_unique": "n unique",
+                    },
+                    value="mean",
+                    label="Aggregation",
+                )
+                .props("dense outlined")
+                .classes("w-40")
+            )
+            self.gb_out_name = (
+                ui.input(
+                    value="",
+                    label="Output column name",
+                    placeholder="e.g. avg_score",
+                )
+                .props("dense outlined")
+                .classes("w-40")
+            )
             ui.button(
-                "Group & aggregate", icon="group_work",
+                "Group & aggregate",
+                icon="group_work",
                 on_click=lambda _=None: self._submit_group_by(),
             ).props("dense unelevated color=primary")
 
     def _submit_group_by(self) -> None:
         cols = list(self.gb_cols.value or [])
         if not cols:
-            ui.notify("select at least one group-by column", type="warning", position="top")
+            ui.notify(
+                "select at least one group-by column", type="warning", position="top"
+            )
             return
         agg_col = self.gb_agg_col.value
         agg_op = self.gb_agg_op.value or "mean"

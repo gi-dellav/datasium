@@ -98,50 +98,98 @@ def test_rename_same_name_is_noop(lf):
 # ---------------------------------------------------------------------------
 def test_arith_add_two_cols(lf):
     out = add_computed_column(
-        lf, "age_plus_score", "arithmetic", "add", col_a="age", col_b="score",
+        lf,
+        "age_plus_score",
+        "arithmetic",
+        "add",
+        col_a="age",
+        col_b="score",
     ).collect()
-    expected = [30 + 8.5, 12 + 3.2, 40 + 9.1, 25 + 5.0, 55 + 7.7, 9 + 2.1, 33 + 6.4, 28 + 4.9]
+    expected = [
+        30 + 8.5,
+        12 + 3.2,
+        40 + 9.1,
+        25 + 5.0,
+        55 + 7.7,
+        9 + 2.1,
+        33 + 6.4,
+        28 + 4.9,
+    ]
     assert out["age_plus_score"].to_list() == pytest.approx(expected)
 
 
 def test_arith_sub_scalar(lf):
     out = add_computed_column(
-        lf, "age_minus_10", "arithmetic", "sub", col_a="age", scalar="10",
+        lf,
+        "age_minus_10",
+        "arithmetic",
+        "sub",
+        col_a="age",
+        scalar="10",
     ).collect()
     assert out["age_minus_10"].to_list() == [20, 2, 30, 15, 45, -1, 23, 18]
 
 
 def test_arith_mul(lf):
     out = add_computed_column(
-        lf, "double_age", "arithmetic", "mul", col_a="age", scalar="2",
+        lf,
+        "double_age",
+        "arithmetic",
+        "mul",
+        col_a="age",
+        scalar="2",
     ).collect()
     assert out["double_age"].to_list() == [60, 24, 80, 50, 110, 18, 66, 56]
 
 
 def test_arith_div(lf):
     out = add_computed_column(
-        lf, "half_score", "arithmetic", "div", col_a="score", scalar="2",
+        lf,
+        "half_score",
+        "arithmetic",
+        "div",
+        col_a="score",
+        scalar="2",
     ).collect()
-    assert out["half_score"].to_list() == pytest.approx([4.25, 1.6, 4.55, 2.5, 3.85, 1.05, 3.2, 2.45])
+    assert out["half_score"].to_list() == pytest.approx(
+        [4.25, 1.6, 4.55, 2.5, 3.85, 1.05, 3.2, 2.45]
+    )
 
 
 def test_arith_mod(lf):
     out = add_computed_column(
-        lf, "age_mod_10", "arithmetic", "mod", col_a="age", scalar="10",
+        lf,
+        "age_mod_10",
+        "arithmetic",
+        "mod",
+        col_a="age",
+        scalar="10",
     ).collect()
     assert out["age_mod_10"].to_list() == [0, 2, 0, 5, 5, 9, 3, 8]
 
 
 def test_arith_pow(lf):
     out = add_computed_column(
-        lf, "age_sq", "arithmetic", "pow", col_a="age", scalar="2",
+        lf,
+        "age_sq",
+        "arithmetic",
+        "pow",
+        col_a="age",
+        scalar="2",
     ).collect()
-    assert out["age_sq"].to_list() == pytest.approx([900, 144, 1600, 625, 3025, 81, 1089, 784])
+    assert out["age_sq"].to_list() == pytest.approx(
+        [900, 144, 1600, 625, 3025, 81, 1089, 784]
+    )
 
 
 def test_arith_floordiv(lf):
     out = add_computed_column(
-        lf, "age_floordiv_10", "arithmetic", "floordiv", col_a="age", scalar="10",
+        lf,
+        "age_floordiv_10",
+        "arithmetic",
+        "floordiv",
+        col_a="age",
+        scalar="10",
     ).collect()
     assert out["age_floordiv_10"].to_list() == [3, 1, 4, 2, 5, 0, 3, 2]
 
@@ -166,32 +214,52 @@ def test_arith_non_numeric(lf):
 # ---------------------------------------------------------------------------
 def test_agg_sum(lf):
     out = add_computed_column(
-        lf, "total_age", "aggregation", "sum", col_a="age",
+        lf,
+        "total_age",
+        "aggregation",
+        "sum",
+        col_a="age",
     ).collect()
     assert out["total_age"].to_list() == [232] * 8
 
 
 def test_agg_mean(lf):
     out = add_computed_column(
-        lf, "avg_age", "aggregation", "mean", col_a="age",
+        lf,
+        "avg_age",
+        "aggregation",
+        "mean",
+        col_a="age",
     ).collect()
     assert out["avg_age"].to_list() == pytest.approx([29.0] * 8)
 
 
 def test_agg_min_max(lf):
     out = add_computed_column(
-        lf, "min_age", "aggregation", "min", col_a="age",
+        lf,
+        "min_age",
+        "aggregation",
+        "min",
+        col_a="age",
     ).collect()
     assert out["min_age"].to_list() == [9] * 8
     out2 = add_computed_column(
-        lf, "max_age", "aggregation", "max", col_a="age",
+        lf,
+        "max_age",
+        "aggregation",
+        "max",
+        col_a="age",
     ).collect()
     assert out2["max_age"].to_list() == [55] * 8
 
 
 def test_agg_count(lf):
     out = add_computed_column(
-        lf, "n", "aggregation", "count", col_a="age",
+        lf,
+        "n",
+        "aggregation",
+        "count",
+        col_a="age",
     ).collect()
     assert out["n"].to_list() == [8] * 8
 
@@ -206,7 +274,11 @@ def test_agg_no_col(lf):
 # ---------------------------------------------------------------------------
 def test_cum_sum(lf):
     out = add_computed_column(
-        lf, "running_age", "cumulative", "cum_sum", col_a="age",
+        lf,
+        "running_age",
+        "cumulative",
+        "cum_sum",
+        col_a="age",
     ).collect()
     ages = [30, 12, 40, 25, 55, 9, 33, 28]
     expected = []
@@ -219,14 +291,22 @@ def test_cum_sum(lf):
 
 def test_cum_count(lf):
     out = add_computed_column(
-        lf, "row_num", "cumulative", "cum_count", col_a="age",
+        lf,
+        "row_num",
+        "cumulative",
+        "cum_count",
+        col_a="age",
     ).collect()
     assert out["row_num"].to_list() == [1, 2, 3, 4, 5, 6, 7, 8]
 
 
 def test_cum_min_max(lf):
     out = add_computed_column(
-        lf, "run_min", "cumulative", "cum_min", col_a="age",
+        lf,
+        "run_min",
+        "cumulative",
+        "cum_min",
+        col_a="age",
     ).collect()
     assert out["run_min"].to_list() == [30, 12, 12, 12, 12, 9, 9, 9]
 
@@ -236,30 +316,73 @@ def test_cum_min_max(lf):
 # ---------------------------------------------------------------------------
 def test_str_upper(lf):
     out = add_computed_column(
-        lf, "upper_name", "string", "upper", col_a="name",
+        lf,
+        "upper_name",
+        "string",
+        "upper",
+        col_a="name",
     ).collect()
-    assert out["upper_name"].to_list() == ["ADA", "BO", "CY", "DE", "ED", "FINN", "GIO", "HAL"]
+    assert out["upper_name"].to_list() == [
+        "ADA",
+        "BO",
+        "CY",
+        "DE",
+        "ED",
+        "FINN",
+        "GIO",
+        "HAL",
+    ]
 
 
 def test_str_lower(lf):
     out = add_computed_column(
-        lf, "lower_city", "string", "lower", col_a="city",
+        lf,
+        "lower_city",
+        "string",
+        "lower",
+        col_a="city",
     ).collect()
-    assert out["lower_city"].to_list() == ["london", "paris", "london", "paris", "rome", "rome", "london", "paris"]
+    assert out["lower_city"].to_list() == [
+        "london",
+        "paris",
+        "london",
+        "paris",
+        "rome",
+        "rome",
+        "london",
+        "paris",
+    ]
 
 
 def test_str_len(lf):
     out = add_computed_column(
-        lf, "name_len", "string", "str_len", col_a="name",
+        lf,
+        "name_len",
+        "string",
+        "str_len",
+        col_a="name",
     ).collect()
     assert out["name_len"].to_list() == [3, 2, 2, 2, 2, 4, 3, 3]
 
 
 def test_str_reverse(lf):
     out = add_computed_column(
-        lf, "rev_name", "string", "reverse", col_a="name",
+        lf,
+        "rev_name",
+        "string",
+        "reverse",
+        col_a="name",
     ).collect()
-    assert out["rev_name"].to_list() == ["adA", "oB", "yC", "eD", "dE", "nniF", "oiG", "laH"]
+    assert out["rev_name"].to_list() == [
+        "adA",
+        "oB",
+        "yC",
+        "eD",
+        "dE",
+        "nniF",
+        "oiG",
+        "laH",
+    ]
 
 
 def test_str_title(lf):
@@ -279,7 +402,11 @@ def test_str_strip():
 # ---------------------------------------------------------------------------
 def test_rank(lf):
     out = add_computed_column(
-        lf, "age_rank", "rank / index", "rank", col_a="age",
+        lf,
+        "age_rank",
+        "rank / index",
+        "rank",
+        col_a="age",
     ).collect()
     # ages: 30,12,40,25,55,9,33,28 → sorted: 9,12,25,28,30,33,40,55
     # dense ranks: 9→1, 12→2, 25→3, 28→4, 30→5, 33→6, 40→7, 55→8
@@ -288,7 +415,10 @@ def test_rank(lf):
 
 def test_row_index(lf):
     out = add_computed_column(
-        lf, "idx", "rank / index", "row_index",
+        lf,
+        "idx",
+        "rank / index",
+        "row_index",
     ).collect()
     assert out["idx"].to_list() == [0, 1, 2, 3, 4, 5, 6, 7]
 
@@ -303,39 +433,83 @@ def test_rank_no_col(lf):
 # ---------------------------------------------------------------------------
 def test_cond_gt(lf):
     out = add_computed_column(
-        lf, "label", "conditional", "cond_gt",
-        col_a="age", scalar="30", then_value="old", else_value="young",
+        lf,
+        "label",
+        "conditional",
+        "cond_gt",
+        col_a="age",
+        scalar="30",
+        then_value="old",
+        else_value="young",
     ).collect()
     assert out["label"].to_list() == [
-        "young", "young", "old", "young", "old", "young", "old", "young",
+        "young",
+        "young",
+        "old",
+        "young",
+        "old",
+        "young",
+        "old",
+        "young",
     ]
 
 
 def test_cond_lt(lf):
     out = add_computed_column(
-        lf, "label", "conditional", "cond_lt",
-        col_a="age", scalar="20", then_value="kid", else_value="adult",
+        lf,
+        "label",
+        "conditional",
+        "cond_lt",
+        col_a="age",
+        scalar="20",
+        then_value="kid",
+        else_value="adult",
     ).collect()
     assert out["label"].to_list() == [
-        "adult", "kid", "adult", "adult", "adult", "kid", "adult", "adult",
+        "adult",
+        "kid",
+        "adult",
+        "adult",
+        "adult",
+        "kid",
+        "adult",
+        "adult",
     ]
 
 
 def test_cond_eq(lf):
     out = add_computed_column(
-        lf, "is_london", "conditional", "cond_eq",
-        col_a="city", scalar="London", then_value="yes", else_value="no",
+        lf,
+        "is_london",
+        "conditional",
+        "cond_eq",
+        col_a="city",
+        scalar="London",
+        then_value="yes",
+        else_value="no",
     ).collect()
     assert out["is_london"].to_list() == [
-        "yes", "no", "yes", "no", "no", "no", "yes", "no",
+        "yes",
+        "no",
+        "yes",
+        "no",
+        "no",
+        "no",
+        "yes",
+        "no",
     ]
 
 
 def test_cond_null():
     df2 = pl.DataFrame({"a": [1, None, 3, None]}).lazy()
     out = add_computed_column(
-        df2, "filled", "conditional", "cond_null",
-        col_a="a", then_value="missing", else_value="present",
+        df2,
+        "filled",
+        "conditional",
+        "cond_null",
+        col_a="a",
+        then_value="missing",
+        else_value="present",
     ).collect()
     assert out["filled"].to_list() == ["present", "missing", "present", "missing"]
 

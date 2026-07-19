@@ -36,7 +36,9 @@ _THRESHOLD_OPS = {"count_gt", "count_ge", "count_lt", "count_le", "count_eq"}
 
 
 def compute_stat(
-    series: pl.Series, op: str, raw: str | None = None,
+    series: pl.Series,
+    op: str,
+    raw: str | None = None,
 ) -> float | int | None:
     """Compute a statistic over ``series``.
 
@@ -84,9 +86,16 @@ def compute_stat(
 def _is_numeric(dtype: pl.DataType) -> bool:
     base = dtype.base_type()
     numeric = {
-        pl.Int8, pl.Int16, pl.Int32, pl.Int64,
-        pl.UInt8, pl.UInt16, pl.UInt32, pl.UInt64,
-        pl.Float32, pl.Float64,
+        pl.Int8,
+        pl.Int16,
+        pl.Int32,
+        pl.Int64,
+        pl.UInt8,
+        pl.UInt16,
+        pl.UInt32,
+        pl.UInt64,
+        pl.Float32,
+        pl.Float64,
     }
     return base in numeric
 
@@ -108,22 +117,37 @@ class Calculator:
         numeric = [n for n, d in columns if _is_numeric(d)]
         with parent:
             with ui.row().classes("items-center gap-2 w-full"):
-                self.col_select = ui.select(
-                    options={n: n for n in numeric} or {"—": "—"},
-                    value=numeric[0] if numeric else None,
-                    label="Column",
-                ).props("dense outlined").classes("w-40")
-                self.op_select = ui.select(
-                    options={k: lbl for lbl, k in _STATS},
-                    value="mean",
-                    label="Operation",
-                    on_change=self._on_op_change,
-                ).props("dense outlined").classes("w-40")
-                self.value_input = ui.input(
-                    value="", label="Threshold X",
-                ).props("dense outlined").classes("w-32")
+                self.col_select = (
+                    ui.select(
+                        options={n: n for n in numeric} or {"—": "—"},
+                        value=numeric[0] if numeric else None,
+                        label="Column",
+                    )
+                    .props("dense outlined")
+                    .classes("w-40")
+                )
+                self.op_select = (
+                    ui.select(
+                        options={k: lbl for lbl, k in _STATS},
+                        value="mean",
+                        label="Operation",
+                        on_change=self._on_op_change,
+                    )
+                    .props("dense outlined")
+                    .classes("w-40")
+                )
+                self.value_input = (
+                    ui.input(
+                        value="",
+                        label="Threshold X",
+                    )
+                    .props("dense outlined")
+                    .classes("w-32")
+                )
                 ui.button(
-                    "Calculate", icon="calculate", on_click=lambda _=None: on_calculate(),
+                    "Calculate",
+                    icon="calculate",
+                    on_click=lambda _=None: on_calculate(),
                 ).props("dense unelevated color=primary")
             self.result_label = ui.label("").classes("text-base ds-mono opacity-80")
         self._refresh()

@@ -67,18 +67,25 @@ class QueryPanel:
                         "Run a SQL query against the active DataFrame "
                         "(table name: self)."
                     ).classes("text-xs opacity-50")
-            self.sql_input = ui.textarea(
-                value="",
-                placeholder="SELECT * FROM self WHERE age > 20",
-                label="SQL",
-            ).props("dense outlined autogrow").classes("w-full ds-mono")
+            self.sql_input = (
+                ui.textarea(
+                    value="",
+                    placeholder="SELECT * FROM self WHERE age > 20",
+                    label="SQL",
+                )
+                .props("dense outlined autogrow")
+                .classes("w-full ds-mono")
+            )
             self.sql_input.on("keydown.enter.ctrl", lambda _e: self._submit())
             with ui.row().classes("items-center gap-2"):
                 ui.button(
-                    "Run", icon="play_arrow", on_click=lambda _=None: self._submit(),
+                    "Run",
+                    icon="play_arrow",
+                    on_click=lambda _=None: self._submit(),
                 ).props("dense unelevated color=primary")
                 ui.button(
-                    "Clear", icon="delete_sweep",
+                    "Clear",
+                    icon="delete_sweep",
                     on_click=lambda _=None: self._clear_input(),
                 ).props("dense flat color=negative")
 
@@ -115,7 +122,8 @@ class QueryPanel:
             with ui.row().classes("items-center gap-2 w-full"):
                 ui.badge(f"#{idx}").props("color=primary")
                 ui.label("ok" if entry.ok else "error").classes(
-                    "text-xs " + ("text-positive" if entry.ok else "text-negative"))
+                    "text-xs " + ("text-positive" if entry.ok else "text-negative")
+                )
                 ui.space()
                 ui.button(
                     icon="replay",
@@ -126,27 +134,33 @@ class QueryPanel:
             if entry.ok:
                 df = entry.result
                 n_rows, n_cols = df.shape
-                ui.label(
-                    f"{n_rows:,} row(s) · {n_cols} column(s)"
-                ).classes("text-xs opacity-50")
+                ui.label(f"{n_rows:,} row(s) · {n_cols} column(s)").classes(
+                    "text-xs opacity-50"
+                )
                 self._render_result_table(df)
             else:
                 ui.label(entry.error or "Unknown error").classes(
-                    "text-sm text-negative ds-mono")
+                    "text-sm text-negative ds-mono"
+                )
 
     def _render_result_table(self, df: pl.DataFrame) -> None:
         if df.width == 0:
             ui.label("No columns in result.").classes("text-sm opacity-50")
             return
         columns = [
-            {"name": c, "label": f"{c}\n{df.schema[c]}", "field": c,
-             "align": "left", "sortable": True}
+            {
+                "name": c,
+                "label": f"{c}\n{df.schema[c]}",
+                "field": c,
+                "align": "left",
+                "sortable": True,
+            }
             for c in df.columns
         ]
         rows = df.rows(named=True)
-        ui.table(columns=columns, rows=rows, row_key=df.columns[0]) \
-            .props("flat dense") \
-            .classes("w-full")
+        ui.table(columns=columns, rows=rows, row_key=df.columns[0]).props(
+            "flat dense"
+        ).classes("w-full")
 
     def _rerun(self, query: str) -> None:
         self.sql_input.value = query

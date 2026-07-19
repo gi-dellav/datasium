@@ -13,7 +13,11 @@ import argparse
 
 from nicegui import events, ui
 
-from datasium.calculate import Calculator, _is_numeric as _is_numeric_dtype, compute_stat
+from datasium.calculate import (
+    Calculator,
+    _is_numeric as _is_numeric_dtype,
+    compute_stat,
+)
 from datasium.dataset import Dataset, DatasetRegistry, UnsupportedFormatError
 from datasium.filter import FilterBuilder
 from datasium.query import QueryEntry, QueryPanel, run_sql
@@ -90,9 +94,12 @@ class App:
                 with ui.column().classes("gap-0"):
                     ui.label(_APP_TITLE).classes("text-xl font-semibold leading-tight")
                     ui.label(_APP_TAGLINE).classes("text-xs opacity-60")
-            ui.button(icon="dark_mode", on_click=lambda: ui.run_javascript(
-                "document.body.classList.toggle('dark')"
-            )).props("flat round").tooltip("Toggle theme")
+            ui.button(
+                icon="dark_mode",
+                on_click=lambda: ui.run_javascript(
+                    "document.body.classList.toggle('dark')"
+                ),
+            ).props("flat round").tooltip("Toggle theme")
 
         with ui.tabs() as self.tabs:
             ui.tab("Load", icon="upload_file")
@@ -150,10 +157,16 @@ class App:
                 auto_upload=True,
                 on_upload=self._on_upload,
                 on_rejected=lambda: ui.notify(
-                    "File rejected", type="negative", position="top",
+                    "File rejected",
+                    type="negative",
+                    position="top",
                 ),
-            ).props('accept=".csv,.tsv,.psv,.parquet,.json,.ndjson,.ipc,.arrow,.feather" '
-                     'color="primary"').classes("w-full")
+            ).props(
+                'accept=".csv,.tsv,.psv,.parquet,.json,.ndjson,.ipc,.arrow,.feather" '
+                'color="primary"'
+            ).classes(
+                "w-full"
+            )
             ui.separator()
             self.list_container = ui.column().classes("w-full gap-1")
             self._render_list()
@@ -167,9 +180,11 @@ class App:
         with self.list_container:
             for ds in self.registry:
                 active = ds.name == self.active_name
-                with ui.button(on_click=lambda _, n=ds.name: self._select(n)) \
-                        .props(f"flat align=left {''if not active else 'outline'}") \
-                        .classes("w-full justify-start"):
+                with (
+                    ui.button(on_click=lambda _, n=ds.name: self._select(n))
+                    .props(f"flat align=left {''if not active else 'outline'}")
+                    .classes("w-full justify-start")
+                ):
                     ui.icon("description" if not active else "description_outlined")
                     with ui.column().classes("gap-0 items-start"):
                         ui.label(ds.name).classes("font-medium")
@@ -188,7 +203,9 @@ class App:
         ds = self.registry.get(self.active_name) if self.active_name else None
         if ds is None:
             with self.select_container:
-                with ui.column().classes("w-full items-center justify-center py-16 gap-2"):
+                with ui.column().classes(
+                    "w-full items-center justify-center py-16 gap-2"
+                ):
                     ui.icon("inbox", size="48px").classes("opacity-30")
                     ui.label("Load a dataset first").classes("opacity-60")
             return
@@ -207,20 +224,35 @@ class App:
             ui.separator()
             ui.label("Columns").classes("text-lg font-medium mt-2")
             schema_cols = [
-                {"name": "idx", "label": "#", "field": "idx",
-                 "align": "left", "sortable": True},
-                {"name": "name", "label": "Name", "field": "name",
-                 "align": "left", "sortable": True},
-                {"name": "dtype", "label": "Type", "field": "dtype",
-                 "align": "left", "sortable": True},
+                {
+                    "name": "idx",
+                    "label": "#",
+                    "field": "idx",
+                    "align": "left",
+                    "sortable": True,
+                },
+                {
+                    "name": "name",
+                    "label": "Name",
+                    "field": "name",
+                    "align": "left",
+                    "sortable": True,
+                },
+                {
+                    "name": "dtype",
+                    "label": "Type",
+                    "field": "dtype",
+                    "align": "left",
+                    "sortable": True,
+                },
             ]
             schema_rows = [
                 {"idx": i + 1, "name": name, "dtype": _human_dtype(dtype)}
                 for i, (name, dtype) in enumerate(ds.columns)
             ]
-            ui.table(columns=schema_cols, rows=schema_rows, row_key="idx") \
-                .props("flat dense rows-per-page-options=[0]") \
-                .classes("w-full")
+            ui.table(columns=schema_cols, rows=schema_rows, row_key="idx").props(
+                "flat dense rows-per-page-options=[0]"
+            ).classes("w-full")
 
             self._build_filter_panel(ds)
 
@@ -230,7 +262,9 @@ class App:
         ds = self.registry.get(self.active_name) if self.active_name else None
         if ds is None:
             with self.view_container:
-                with ui.column().classes("w-full items-center justify-center py-16 gap-2"):
+                with ui.column().classes(
+                    "w-full items-center justify-center py-16 gap-2"
+                ):
                     ui.icon("visibility", size="48px").classes("opacity-30")
                     ui.label("Load a dataset first").classes("opacity-60")
             return
@@ -249,7 +283,9 @@ class App:
         ds = self.registry.get(self.active_name) if self.active_name else None
         if ds is None:
             with self.remove_container:
-                with ui.column().classes("w-full items-center justify-center py-16 gap-2"):
+                with ui.column().classes(
+                    "w-full items-center justify-center py-16 gap-2"
+                ):
                     ui.icon("delete_sweep", size="48px").classes("opacity-30")
                     ui.label("Load a dataset first").classes("opacity-60")
             return
@@ -262,11 +298,15 @@ class App:
                         "Drop columns and/or rows from the active dataset."
                     ).classes("text-xs opacity-50")
             self.remove_panel = RemovePanel(
-                self.remove_container, ds.columns,
-                self._run_remove_preview, self._apply_remove,
+                self.remove_container,
+                ds.columns,
+                self._run_remove_preview,
+                self._apply_remove,
             )
             self.remove_panel.set_selection_expr_provider(
-                lambda: self.filter_builder.build_expr() if self.filter_builder else None,
+                lambda: (
+                    self.filter_builder.build_expr() if self.filter_builder else None
+                ),
             )
             self.remove_meta = ui.label("").classes("text-xs opacity-50")
             self.remove_preview_container = ui.column().classes("w-full")
@@ -290,7 +330,9 @@ class App:
             return
         except Exception as err:
             self._remove_preview = None
-            ui.notify(f"Could not build removal: {err}", type="negative", position="top")
+            ui.notify(
+                f"Could not build removal: {err}", type="negative", position="top"
+            )
             if self.remove_meta is not None:
                 self.remove_meta.set_text("Error.")
             self.remove_preview_container.clear()
@@ -305,7 +347,9 @@ class App:
             parts.append(f"{d_rows:,} row(s)")
         if d_cols:
             parts.append(f"{d_cols:,} column(s)")
-        summary = " and ".join(parts) + " will be removed" if parts else "nothing to remove"
+        summary = (
+            " and ".join(parts) + " will be removed" if parts else "nothing to remove"
+        )
         if self.remove_meta is not None:
             self.remove_meta.set_text(
                 f"Result: {after_rows:,} row(s) · {after_cols:,} column(s) — {summary}."
@@ -317,14 +361,19 @@ class App:
                 ui.label("No columns remain.").classes("text-sm opacity-50")
                 return
             columns = [
-                {"name": c, "label": f"{c}\n{_human_dtype(df.schema[c])}", "field": c,
-                 "align": "left", "sortable": True}
+                {
+                    "name": c,
+                    "label": f"{c}\n{_human_dtype(df.schema[c])}",
+                    "field": c,
+                    "align": "left",
+                    "sortable": True,
+                }
                 for c in df.columns
             ]
             rows = df.rows(named=True)
-            ui.table(columns=columns, rows=rows, row_key=df.columns[0]) \
-                .props("flat dense") \
-                .classes("w-full")
+            ui.table(columns=columns, rows=rows, row_key=df.columns[0]).props(
+                "flat dense"
+            ).classes("w-full")
 
     def _apply_remove(self) -> None:
         ds = self.registry.get(self.active_name) if self.active_name else None
@@ -341,8 +390,11 @@ class App:
         ar, ac = ds_after.shape if ds_after is not None else (0, 0)
         self.selected_columns = None
         self._refresh_all_tabs()
-        ui.notify(f"Removed · now {ar:,} row(s) × {ac} column(s)",
-                  type="positive", position="top")
+        ui.notify(
+            f"Removed · now {ar:,} row(s) × {ac} column(s)",
+            type="positive",
+            position="top",
+        )
 
     # ------------------------------------------------------------ transform tab
     def _render_transform_tab(self) -> None:
@@ -351,7 +403,9 @@ class App:
         ds = self.registry.get(self.active_name) if self.active_name else None
         if ds is None:
             with self.transform_container:
-                with ui.column().classes("w-full items-center justify-center py-16 gap-2"):
+                with ui.column().classes(
+                    "w-full items-center justify-center py-16 gap-2"
+                ):
                     ui.icon("transform", size="48px").classes("opacity-30")
                     ui.label("Load a dataset first").classes("opacity-60")
             return
@@ -365,7 +419,8 @@ class App:
                         "group-by aggregations."
                     ).classes("text-xs opacity-50")
             self.transform_panel = TransformPanel(
-                self.transform_container, ds.columns,
+                self.transform_container,
+                ds.columns,
                 on_sort=self._on_transform_sort,
                 on_rename=self._on_transform_rename,
                 on_computed=self._on_transform_computed,
@@ -413,9 +468,15 @@ class App:
             return
         try:
             new_lf = add_computed_column(
-                ds.lazyframe, name, category, op,
-                col_a=col_a, col_b=col_b, scalar=scalar,
-                then_value=then_value, else_value=else_value,
+                ds.lazyframe,
+                name,
+                category,
+                op,
+                col_a=col_a,
+                col_b=col_b,
+                scalar=scalar,
+                then_value=then_value,
+                else_value=else_value,
             )
         except ValueError as err:
             ui.notify(str(err), type="warning", position="top")
@@ -423,7 +484,11 @@ class App:
         self._apply_transform(new_lf, f"Added computed column {name!r}")
 
     def _on_transform_group_by(
-        self, group_cols: list[str], agg_col: str | None, agg_op: str, out_name: str,
+        self,
+        group_cols: list[str],
+        agg_col: str | None,
+        agg_op: str,
+        out_name: str,
     ) -> None:
         ds = self.registry.get(self.active_name) if self.active_name else None
         if ds is None:
@@ -441,6 +506,7 @@ class App:
         base = self.active_name or "dataset"
         label = f"{base}_grouped"
         from datasium.dataset import Dataset
+
         unique = self.registry._unique(label)
         new_ds = Dataset(name=unique, source=f"group_by({base})", lazyframe=df.lazy())
         self.registry._items[unique] = new_ds
@@ -449,7 +515,8 @@ class App:
         ar, ac = df.shape
         ui.notify(
             f"Group-by → new dataset {unique!r} · {ar:,} row(s) × {ac} column(s)",
-            type="positive", position="top",
+            type="positive",
+            position="top",
         )
 
     def _apply_transform(self, new_lf: pl.LazyFrame, label: str) -> bool:
@@ -461,14 +528,19 @@ class App:
             new_lf.collect_schema()
             df = new_lf.collect()
         except Exception as err:
-            ui.notify(f"Could not apply transform: {err}", type="negative", position="top")
+            ui.notify(
+                f"Could not apply transform: {err}", type="negative", position="top"
+            )
             return False
         self.registry.replace(self.active_name, df.lazy())
         self.selected_columns = None
         self._refresh_all_tabs()
         ar, ac = df.shape
-        ui.notify(f"{label} · now {ar:,} row(s) × {ac} column(s)",
-                  type="positive", position="top")
+        ui.notify(
+            f"{label} · now {ar:,} row(s) × {ac} column(s)",
+            type="positive",
+            position="top",
+        )
         return True
 
     def _refresh_all_tabs(self) -> None:
@@ -490,7 +562,9 @@ class App:
         ds = self.registry.get(self.active_name) if self.active_name else None
         if ds is None:
             with self.edit_container:
-                with ui.column().classes("w-full items-center justify-center py-16 gap-2"):
+                with ui.column().classes(
+                    "w-full items-center justify-center py-16 gap-2"
+                ):
                     ui.icon("edit", size="48px").classes("opacity-30")
                     ui.label("Load a dataset first").classes("opacity-60")
             return
@@ -503,7 +577,8 @@ class App:
                         "Cast column types, add columns/rows, and edit cells."
                     ).classes("text-xs opacity-50")
             self.edit_panel = EditPanel(
-                self.edit_container, ds.columns,
+                self.edit_container,
+                ds.columns,
                 self._on_edit_cast,
                 self._on_edit_add_column,
                 self._on_edit_add_row,
@@ -528,8 +603,11 @@ class App:
         self.selected_columns = None
         self._refresh_all_tabs()
         ar, ac = df.shape
-        ui.notify(f"{label} · now {ar:,} row(s) × {ac} column(s)",
-                  type="positive", position="top")
+        ui.notify(
+            f"{label} · now {ar:,} row(s) × {ac} column(s)",
+            type="positive",
+            position="top",
+        )
         return True
 
     def _on_edit_cast(self, column: str, dtype_key: str) -> None:
@@ -595,10 +673,12 @@ class App:
         try:
             if mode == "index":
                 new_lf = _edit_set_cell_by_index(
-                    ds.lazyframe, int(index), column, new_raw, dtype)
+                    ds.lazyframe, int(index), column, new_raw, dtype
+                )
             else:
                 new_lf = _edit_set_cell_by_key(
-                    ds.lazyframe, key_cols, key_vals, column, new_raw, dtype)
+                    ds.lazyframe, key_cols, key_vals, column, new_raw, dtype
+                )
         except ValueError as err:
             ui.notify(str(err), type="warning", position="top")
             return
@@ -634,7 +714,9 @@ class App:
         ds = self.registry.get(self.active_name) if self.active_name else None
         if ds is None:
             with self.calc_container:
-                with ui.column().classes("w-full items-center justify-center py-16 gap-2"):
+                with ui.column().classes(
+                    "w-full items-center justify-center py-16 gap-2"
+                ):
                     ui.icon("functions", size="48px").classes("opacity-30")
                     ui.label("Load a dataset first").classes("opacity-60")
             return
@@ -649,11 +731,14 @@ class App:
             numeric = [(n, d) for n, d in ds.columns if _is_numeric_dtype(d)]
             if not numeric:
                 ui.label("This dataset has no numeric columns.").classes(
-                    "text-sm opacity-50 mt-2")
+                    "text-sm opacity-50 mt-2"
+                )
                 return
             self.calc_panel = ui.column().classes("w-full gap-1 mt-2")
             self.calculator = Calculator(
-                self.calc_panel, ds.columns, self._run_calculate,
+                self.calc_panel,
+                ds.columns,
+                self._run_calculate,
             )
 
     def _run_calculate(self) -> None:
@@ -693,7 +778,9 @@ class App:
         ds = self.registry.get(self.active_name) if self.active_name else None
         if ds is None:
             with self.plot_root:
-                with ui.column().classes("w-full items-center justify-center py-16 gap-2"):
+                with ui.column().classes(
+                    "w-full items-center justify-center py-16 gap-2"
+                ):
                     ui.icon("show_chart", size="48px").classes("opacity-30")
                     ui.label("Load a dataset first").classes("opacity-60")
             return
@@ -736,9 +823,15 @@ class App:
             self.plot_panel.render_error(msg)
             ui.notify(msg, type="negative", position="top")
             return
-        filt = " with filters" if (
-            scope == "selection" and self.filter_builder and self.filter_builder.rows
-        ) else ""
+        filt = (
+            " with filters"
+            if (
+                scope == "selection"
+                and self.filter_builder
+                and self.filter_builder.rows
+            )
+            else ""
+        )
         self.plot_panel.set_meta(
             f"{spec.plot_type} · {df.height:,} row(s) · "
             f"{'current selection' if scope == 'selection' else 'entire dataset'}{filt}"
@@ -752,7 +845,9 @@ class App:
         ds = self.registry.get(self.active_name) if self.active_name else None
         if ds is None:
             with self.write_container:
-                with ui.column().classes("w-full items-center justify-center py-16 gap-2"):
+                with ui.column().classes(
+                    "w-full items-center justify-center py-16 gap-2"
+                ):
                     ui.icon("save", size="48px").classes("opacity-30")
                     ui.label("Load a dataset first").classes("opacity-60")
             return
@@ -795,14 +890,19 @@ class App:
         try:
             df = new_lf.collect()
         except Exception as err:
-            ui.notify(f"Could not apply selection: {err}", type="negative", position="top")
+            ui.notify(
+                f"Could not apply selection: {err}", type="negative", position="top"
+            )
             return
         self.registry.replace(self.active_name, df.lazy())
         self.selected_columns = None
         self._refresh_all_tabs()
         ar, ac = df.shape
-        ui.notify(f"Selection saved · now {ar:,} row(s) × {ac} column(s)",
-                  type="positive", position="top")
+        ui.notify(
+            f"Selection saved · now {ar:,} row(s) × {ac} column(s)",
+            type="positive",
+            position="top",
+        )
 
     def _on_write_export_dataset(self, path: str, name: str) -> None:
         ds = self.registry.get(self.active_name) if self.active_name else None
@@ -850,14 +950,18 @@ class App:
         ds = self.registry.get(self.active_name) if self.active_name else None
         if ds is None:
             with self.query_container:
-                with ui.column().classes("w-full items-center justify-center py-16 gap-2"):
+                with ui.column().classes(
+                    "w-full items-center justify-center py-16 gap-2"
+                ):
                     ui.icon("query_stats", size="48px").classes("opacity-30")
                     ui.label("Load a dataset first").classes("opacity-60")
             return
 
         with self.query_container:
             self.query_panel = QueryPanel(
-                self.query_container, self.query_history, self._run_query,
+                self.query_container,
+                self.query_history,
+                self._run_query,
             )
 
     def _run_query(self, query: str) -> None:
@@ -894,14 +998,18 @@ class App:
         ui.label("Columns to show").classes("text-lg font-medium mt-2")
         ui.label("Leave empty to use all columns.").classes("text-xs opacity-50")
         names = [n for n, _ in ds.columns]
-        self.col_select = ui.select(
-            options={n: n for n in names},
-            multiple=True,
-            value=list(self.selected_columns) if self.selected_columns else [],
-            clearable=True,
-            label="Columns",
-            on_change=lambda e: self._on_columns_change(e.value),
-        ).props("dense outlined use-chips").classes("w-full")
+        self.col_select = (
+            ui.select(
+                options={n: n for n in names},
+                multiple=True,
+                value=list(self.selected_columns) if self.selected_columns else [],
+                clearable=True,
+                label="Columns",
+                on_change=lambda e: self._on_columns_change(e.value),
+            )
+            .props("dense outlined use-chips")
+            .classes("w-full")
+        )
 
     def _on_columns_change(self, value) -> None:
         self.selected_columns = list(value) if value else None
@@ -916,7 +1024,9 @@ class App:
         ).classes("text-xs opacity-50")
         fb_container = ui.column().classes("w-full")
         self.filter_builder = FilterBuilder(
-            ds.columns, fb_container, combinator="all",
+            ds.columns,
+            fb_container,
+            combinator="all",
         )
 
     # -------------------------------------------------------------- preview panel
@@ -926,13 +1036,18 @@ class App:
             ui.label("Result preview").classes("text-lg font-medium")
             with ui.row().classes("items-center gap-2"):
                 self.mode_toggle = ui.toggle(
-                    {"selected": "Selected columns × rows",
-                     "rows-only": "All columns × rows"},
+                    {
+                        "selected": "Selected columns × rows",
+                        "rows-only": "All columns × rows",
+                    },
                     value=self.preview_mode,
                     on_change=lambda e: self._on_mode_change(e.value),
                 ).props("dense")
-                ui.button("Preview", icon="play_arrow", on_click=lambda _=None: self._run_preview()) \
-                    .props("unelevated color=primary dense")
+                ui.button(
+                    "Preview",
+                    icon="play_arrow",
+                    on_click=lambda _=None: self._run_preview(),
+                ).props("unelevated color=primary dense")
         self.preview_meta = ui.label("").classes("text-xs opacity-50")
         self.preview_container = ui.column().classes("w-full")
 
@@ -970,7 +1085,11 @@ class App:
             if self.preview_mode == "selected" and self.selected_columns
             else f"all {n_cols} column{'s' if n_cols != 1 else ''}"
         )
-        filt = " with filters" if (self.filter_builder and self.filter_builder.rows) else ""
+        filt = (
+            " with filters"
+            if (self.filter_builder and self.filter_builder.rows)
+            else ""
+        )
         self.preview_meta.set_text(f"{n_rows:,} row(s) · {col_desc}{filt}")
 
         self.preview_container.clear()
@@ -980,14 +1099,19 @@ class App:
             return
         with self.preview_container:
             columns = [
-                {"name": c, "label": f"{c}\n{_human_dtype(df.schema[c])}", "field": c,
-                 "align": "left", "sortable": True}
+                {
+                    "name": c,
+                    "label": f"{c}\n{_human_dtype(df.schema[c])}",
+                    "field": c,
+                    "align": "left",
+                    "sortable": True,
+                }
                 for c in df.columns
             ]
             rows = df.rows(named=True)
-            ui.table(columns=columns, rows=rows, row_key=df.columns[0]) \
-                .props("flat dense") \
-                .classes("w-full")
+            ui.table(columns=columns, rows=rows, row_key=df.columns[0]).props(
+                "flat dense"
+            ).classes("w-full")
 
     # ----------------------------------------------------------------- handlers
     def _on_upload(self, e: events.UploadEventArguments) -> None:
@@ -1024,7 +1148,11 @@ def _page() -> None:
 
 def main() -> None:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--native", action="store_true", help="Run as a native desktop window instead of a web server")
+    parser.add_argument(
+        "--native",
+        action="store_true",
+        help="Run as a native desktop window instead of a web server",
+    )
     args = parser.parse_args()
 
     ui.run(

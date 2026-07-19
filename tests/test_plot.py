@@ -11,11 +11,13 @@ from datasium.plot import PlotSpec, build_figure
 
 @pytest.fixture
 def df() -> pl.DataFrame:
-    return pl.DataFrame({
-        "cat": ["a", "a", "b", "b", "c", "c"],
-        "x": [0, 1, 2, 3, 4, 5],
-        "y": [1.0, 2.0, 3.0, 4.0, 5.0, 6.0],
-    })
+    return pl.DataFrame(
+        {
+            "cat": ["a", "a", "b", "b", "c", "c"],
+            "x": [0, 1, 2, 3, 4, 5],
+            "y": [1.0, 2.0, 3.0, 4.0, 5.0, 6.0],
+        }
+    )
 
 
 def _trace(fig):
@@ -62,20 +64,24 @@ def test_bar_aggregated_mean(df):
     t = fig["data"][0]
     assert t["type"] == "bar"
     assert t["x"].tolist() == ["a", "b", "c"]
-    assert t["y"].tolist() == [1.5, 3.5, 5.5]   # mean of [1,2],[3,4],[5,6]
+    assert t["y"].tolist() == [1.5, 3.5, 5.5]  # mean of [1,2],[3,4],[5,6]
     assert fig["layout"]["yaxis"]["title"] == "mean of y"
 
 
 def test_bar_aggregated_color_equals_x(df):
     # color column equal to X must not raise DuplicateError
-    fig = build_figure(df, PlotSpec(plot_type="bar", x="cat", y="y", color="cat", agg="mean"))
+    fig = build_figure(
+        df, PlotSpec(plot_type="bar", x="cat", y="y", color="cat", agg="mean")
+    )
     assert [t["name"] for t in fig["data"]] == ["a", "b", "c"]
 
 
 def test_bar_aggregated_with_color(df):
     # color splits the aggregation into one trace per group
     df2 = df.with_columns(bin=pl.Series(["p", "q", "p", "q", "p", "q"]))
-    fig = build_figure(df2, PlotSpec(plot_type="bar", x="cat", y="y", color="bin", agg="sum"))
+    fig = build_figure(
+        df2, PlotSpec(plot_type="bar", x="cat", y="y", color="bin", agg="sum")
+    )
     by_name = {t["name"]: t["x"].tolist() for t in fig["data"]}
     assert set(by_name) == {"p", "q"}
 

@@ -54,9 +54,9 @@ class PlotSpec:
     plot_type: str = "scatter"
     x: str | None = None
     y: str | None = None
-    color: str | None = None   # optional group / color-by column
-    agg: str = "raw"           # statistic for the Bar plot
-    nbins: int = 30            # bins for the Histogram plot
+    color: str | None = None  # optional group / color-by column
+    agg: str = "raw"  # statistic for the Bar plot
+    nbins: int = 30  # bins for the Histogram plot
 
 
 # --------------------------------------------------------------------------- #
@@ -73,7 +73,9 @@ def _require(df: pl.DataFrame, col: str | None, role: str) -> None:
         raise ValueError(f"{role} column {col!r} not found")
 
 
-def _groups(df: pl.DataFrame, color: str | None) -> list[tuple[str | None, pl.DataFrame]]:
+def _groups(
+    df: pl.DataFrame, color: str | None
+) -> list[tuple[str | None, pl.DataFrame]]:
     """Yield ``(label, sub-frame)`` per unique value of ``color`` (or one group
     covering the whole frame when ``color`` is unset). First-appearance order."""
     if color is None or color not in _columns(df):
@@ -111,8 +113,11 @@ def _agg_expr(y: str | None, agg: str):
 
 
 def _figure(
-    traces: list[dict], spec: PlotSpec, *,
-    xaxis: str | None = None, yaxis: str | None = None,
+    traces: list[dict],
+    spec: PlotSpec,
+    *,
+    xaxis: str | None = None,
+    yaxis: str | None = None,
     barmode: str | None = None,
 ) -> dict:
     layout: dict = {
@@ -146,13 +151,15 @@ def _scatter_line(df: pl.DataFrame, spec: PlotSpec, pt: str) -> dict:
     _require(df, spec.y, "Y")
     traces = []
     for label, sub in _groups(df, spec.color):
-        traces.append({
-            "type": "scatter",
-            "mode": "markers" if pt == "scatter" else "lines",
-            "name": label or spec.y,
-            "x": sub[spec.x].to_numpy(),
-            "y": sub[spec.y].to_numpy(),
-        })
+        traces.append(
+            {
+                "type": "scatter",
+                "mode": "markers" if pt == "scatter" else "lines",
+                "name": label or spec.y,
+                "x": sub[spec.x].to_numpy(),
+                "y": sub[spec.y].to_numpy(),
+            }
+        )
     return _figure(traces, spec, xaxis=spec.x, yaxis=spec.y)
 
 
@@ -165,12 +172,14 @@ def _bar(df: pl.DataFrame, spec: PlotSpec) -> dict:
         _require(df, spec.y, "Y")
         traces = []
         for label, sub in _groups(df, spec.color):
-            traces.append({
-                "type": "bar",
-                "name": label or spec.y,
-                "x": sub[spec.x].to_numpy(),
-                "y": sub[spec.y].to_numpy(),
-            })
+            traces.append(
+                {
+                    "type": "bar",
+                    "name": label or spec.y,
+                    "x": sub[spec.x].to_numpy(),
+                    "y": sub[spec.y].to_numpy(),
+                }
+            )
         return _figure(traces, spec, xaxis=spec.x, yaxis=spec.y, barmode="group")
 
     # aggregated: one bar per distinct X (per group when color is set)
@@ -182,19 +191,23 @@ def _bar(df: pl.DataFrame, spec: PlotSpec) -> dict:
     traces = []
     if spec.color:
         for label, sub in _groups(gdf, spec.color):
-            traces.append({
-                "type": "bar",
-                "name": label,
-                "x": sub[spec.x].to_numpy(),
-                "y": sub["_ds_val"].to_numpy(),
-            })
+            traces.append(
+                {
+                    "type": "bar",
+                    "name": label,
+                    "x": sub[spec.x].to_numpy(),
+                    "y": sub["_ds_val"].to_numpy(),
+                }
+            )
     else:
-        traces.append({
-            "type": "bar",
-            "name": (spec.y if spec.y and agg != "count" else "count"),
-            "x": gdf[spec.x].to_numpy(),
-            "y": gdf["_ds_val"].to_numpy(),
-        })
+        traces.append(
+            {
+                "type": "bar",
+                "name": (spec.y if spec.y and agg != "count" else "count"),
+                "x": gdf[spec.x].to_numpy(),
+                "y": gdf["_ds_val"].to_numpy(),
+            }
+        )
     y_label = "count" if agg == "count" else f"{agg} of {spec.y}"
     return _figure(traces, spec, xaxis=spec.x, yaxis=y_label, barmode="group")
 
@@ -204,13 +217,15 @@ def _histogram(df: pl.DataFrame, spec: PlotSpec) -> dict:
     nbins = max(1, int(spec.nbins or 30))
     traces = []
     for label, sub in _groups(df, spec.color):
-        traces.append({
-            "type": "histogram",
-            "name": label or spec.x,
-            "x": sub[spec.x].to_numpy(),
-            "nbinsx": nbins,
-            "marker": {"opacity": 0.6} if spec.color else {},
-        })
+        traces.append(
+            {
+                "type": "histogram",
+                "name": label or spec.x,
+                "x": sub[spec.x].to_numpy(),
+                "nbinsx": nbins,
+                "marker": {"opacity": 0.6} if spec.color else {},
+            }
+        )
     return _figure(traces, spec, xaxis=spec.x, yaxis="count", barmode="overlay")
 
 
@@ -219,11 +234,13 @@ def _box_violin(df: pl.DataFrame, spec: PlotSpec, kind: str) -> dict:
     group_col = spec.color or spec.x
     traces = []
     for label, sub in _groups(df, group_col):
-        traces.append({
-            "type": kind,
-            "name": label or spec.y,
-            "y": sub[spec.y].to_numpy(),
-        })
+        traces.append(
+            {
+                "type": kind,
+                "name": label or spec.y,
+                "y": sub[spec.y].to_numpy(),
+            }
+        )
     return _figure(traces, spec, yaxis=spec.y)
 
 
@@ -268,37 +285,78 @@ class PlotPanel:
 
         with parent:
             with ui.row().classes("items-center gap-2 w-full flex-wrap"):
-                self.type_select = ui.select(
-                    options={k: lbl for lbl, k in PLOT_TYPES},
-                    value="scatter", label="Plot type",
-                    on_change=lambda _e: self._refresh(),
-                ).props("dense outlined").classes("w-44")
-                self.scope_select = ui.select(
-                    {
-                        "selection": "Current selection (filtered rows)",
-                        "dataset": "Entire dataset (all rows)",
-                    },
-                    value="selection", label="Data scope",
-                ).props("dense outlined").classes("w-64")
-                self.x_select = ui.select(
-                    options=opts, value=None, label="X column",
-                ).props("dense outlined").classes("w-40")
-                self.y_select = ui.select(
-                    options=opts, value=None, label="Y column",
-                ).props("dense outlined").classes("w-40")
-                self.color_select = ui.select(
-                    options=opts, value=None, label="Color / group by",
-                    clearable=True,
-                ).props("dense outlined").classes("w-40")
-                self.agg_select = ui.select(
-                    options={k: lbl for lbl, k in AGG_STATS},
-                    value="raw", label="Statistic (bar)",
-                ).props("dense outlined").classes("w-44")
-                self.bins_input = ui.number(
-                    value=30, min=1, max=500, label="Bins (histogram)",
-                ).props("dense outlined").classes("w-28")
-                ui.button("Plot", icon="show_chart", on_click=lambda _=None: on_plot()) \
-                    .props("unelevated color=primary dense")
+                self.type_select = (
+                    ui.select(
+                        options={k: lbl for lbl, k in PLOT_TYPES},
+                        value="scatter",
+                        label="Plot type",
+                        on_change=lambda _e: self._refresh(),
+                    )
+                    .props("dense outlined")
+                    .classes("w-44")
+                )
+                self.scope_select = (
+                    ui.select(
+                        {
+                            "selection": "Current selection (filtered rows)",
+                            "dataset": "Entire dataset (all rows)",
+                        },
+                        value="selection",
+                        label="Data scope",
+                    )
+                    .props("dense outlined")
+                    .classes("w-64")
+                )
+                self.x_select = (
+                    ui.select(
+                        options=opts,
+                        value=None,
+                        label="X column",
+                    )
+                    .props("dense outlined")
+                    .classes("w-40")
+                )
+                self.y_select = (
+                    ui.select(
+                        options=opts,
+                        value=None,
+                        label="Y column",
+                    )
+                    .props("dense outlined")
+                    .classes("w-40")
+                )
+                self.color_select = (
+                    ui.select(
+                        options=opts,
+                        value=None,
+                        label="Color / group by",
+                        clearable=True,
+                    )
+                    .props("dense outlined")
+                    .classes("w-40")
+                )
+                self.agg_select = (
+                    ui.select(
+                        options={k: lbl for lbl, k in AGG_STATS},
+                        value="raw",
+                        label="Statistic (bar)",
+                    )
+                    .props("dense outlined")
+                    .classes("w-44")
+                )
+                self.bins_input = (
+                    ui.number(
+                        value=30,
+                        min=1,
+                        max=500,
+                        label="Bins (histogram)",
+                    )
+                    .props("dense outlined")
+                    .classes("w-28")
+                )
+                ui.button(
+                    "Plot", icon="show_chart", on_click=lambda _=None: on_plot()
+                ).props("unelevated color=primary dense")
             self.meta = ui.label("").classes("text-xs opacity-50")
             self.plot_container = ui.column().classes("w-full")
         self._refresh()
@@ -345,8 +403,12 @@ class PlotPanel:
     @property
     def spec(self) -> PlotSpec:
         return PlotSpec(
-            plot_type=self.plot_type, x=self.x, y=self.y,
-            color=self.color, agg=self.agg, nbins=self.nbins,
+            plot_type=self.plot_type,
+            x=self.x,
+            y=self.y,
+            color=self.color,
+            agg=self.agg,
+            nbins=self.nbins,
         )
 
     # ---- output slots -------------------------------------------------------
