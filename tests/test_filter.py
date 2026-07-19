@@ -130,6 +130,99 @@ def test_unknown_operator_raises(schema):
 
 
 # ---------------------------------------------------------------------------
+# New operators: between / not_between
+# ---------------------------------------------------------------------------
+def test_between_numeric(lf, schema):
+    expr = build_term("age", "between", "20, 40", schema["age"])
+    assert set(_run(lf, expr)["name"]) == {"Ada", "Cy", "De", "Gio", "Hal"}
+
+
+def test_between_inclusive(lf, schema):
+    expr = build_term("age", "between", "30, 40", schema["age"])
+    assert set(_run(lf, expr)["name"]) == {"Ada", "Cy", "Gio"}
+
+
+def test_not_between(lf, schema):
+    expr = build_term("age", "not_between", "20, 40", schema["age"])
+    assert set(_run(lf, expr)["name"]) == {"Bo", "Ed", "Finn"}
+
+
+def test_between_bad_input(lf, schema):
+    with pytest.raises(ValueError, match="two comma-separated"):
+        build_term("age", "between", "20", schema["age"])
+    with pytest.raises(ValueError, match="two comma-separated"):
+        build_term("age", "between", "", schema["age"])
+
+
+# ---------------------------------------------------------------------------
+# New operators: not_contains
+# ---------------------------------------------------------------------------
+def test_not_contains(lf, schema):
+    expr = build_term("name", "not_contains", "a", schema["name"])
+    # names with 'a': Ada, Hal → rest: Bo, Cy, De, Ed, Finn, Gio
+    assert set(_run(lf, expr)["name"]) == {"Bo", "Cy", "De", "Ed", "Finn", "Gio"}
+
+
+# ---------------------------------------------------------------------------
+# New operators: regex
+# ---------------------------------------------------------------------------
+def test_regex(lf, schema):
+    expr = build_term("name", "regex", "^[A-C]", schema["name"])
+    assert set(_run(lf, expr)["name"]) == {"Ada", "Bo", "Cy"}
+
+
+def test_regex_empty_raises(lf, schema):
+    with pytest.raises(ValueError, match="supply a regex"):
+        build_term("name", "regex", "", schema["name"])
+
+
+# ---------------------------------------------------------------------------
+# New operators: is_nan / is_not_nan
+# ---------------------------------------------------------------------------
+def test_is_nan():
+    df = pl.DataFrame({"v": [1.0, float("nan"), 3.0, float("nan")]})
+    expr = build_term("v", "is_nan", "", pl.Float64)
+    assert df.filter(expr).height == 2
+
+
+def test_is_not_nan():
+    df = pl.DataFrame({"v": [1.0, float("nan"), 3.0, float("nan")]})
+    expr = build_term("v", "is_not_nan", "", pl.Float64)
+    assert df.filter(expr).height == 2
+
+
+# ---------------------------------------------------------------------------
+# New operators: string length
+# ---------------------------------------------------------------------------
+def test_str_len_eq(lf, schema):
+    expr = build_term("name", "str_len_eq", "2", schema["name"])
+    assert set(_run(lf, expr)["name"]) == {"Bo", "Cy", "De", "Ed"}
+
+
+def test_str_len_gt(lf, schema):
+    expr = build_term("name", "str_len_gt", "3", schema["name"])
+    assert set(_run(lf, expr)["name"]) == {"Finn"}
+
+
+def test_str_len_lt(lf, schema):
+    expr = build_term("name", "str_len_lt", "3", schema["name"])
+    assert set(_run(lf, expr)["name"]) == {"Bo", "Cy", "De", "Ed"}
+
+
+def test_str_len_bad_input(lf, schema):
+    with pytest.raises(ValueError, match="expected an integer"):
+        build_term("name", "str_len_eq", "abc", schema["name"])
+
+
+# ---------------------------------------------------------------------------
+# New operators: is_in on numeric
+# ---------------------------------------------------------------------------
+def test_is_in_numeric(lf, schema):
+    expr = build_term("age", "is_in", "30, 40, 55", schema["age"])
+    assert set(_run(lf, expr)["name"]) == {"Ada", "Cy", "Ed"}
+
+
+# ---------------------------------------------------------------------------
 # DatasetRegistry
 # ---------------------------------------------------------------------------
 def test_registry_load_and_get():

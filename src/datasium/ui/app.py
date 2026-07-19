@@ -30,6 +30,13 @@ from datasium.edit import (
 )
 from datasium.remove import RemovePanel, apply_removal
 from datasium.plot import PlotPanel, PlotSpec, build_figure
+from datasium.transform import (
+    TransformPanel,
+    add_computed_column,
+    group_by_agg,
+    rename_column,
+    sort_frame,
+)
 from datasium.write import WritePanel, save_frame, apply_selection
 
 import polars as pl
@@ -65,6 +72,7 @@ class App:
         self.edit_panel: EditPanel | None = None
         self.write_panel: WritePanel | None = None
         self.plot_panel: PlotPanel | None = None
+        self.transform_panel: TransformPanel | None = None
 
     # ------------------------------------------------------------------ build
     def build(self) -> None:
@@ -93,6 +101,7 @@ class App:
             ui.tab("Edit", icon="edit")
             ui.tab("Query", icon="query_stats")
             ui.tab("Remove", icon="delete_sweep")
+            ui.tab("Transform", icon="transform")
             ui.tab("Calculate", icon="functions")
             ui.tab("Plot", icon="show_chart")
             ui.tab("Write", icon="save")
@@ -116,6 +125,9 @@ class App:
             with ui.tab_panel("Remove"):
                 self.remove_container = ui.column().classes("w-full p-4")
                 self._render_remove_tab()
+            with ui.tab_panel("Transform"):
+                self.transform_container = ui.column().classes("w-full p-4")
+                self._render_transform_tab()
             with ui.tab_panel("Calculate"):
                 self.calc_container = ui.column().classes("w-full p-4")
                 self._render_calculate_tab()
@@ -328,17 +340,148 @@ class App:
         ds_after = self.registry.get(self.active_name)
         ar, ac = ds_after.shape if ds_after is not None else (0, 0)
         self.selected_columns = None
+        self._refresh_all_tabs()
+        ui.notify(f"Removed · now {ar:,} row(s) × {ac} column(s)",
+                  type="positive", position="top")
+
+    # ------------------------------------------------------------ transform tab
+    def _render_transform_tab(self) -> None:
+        self.transform_container.clear()
+        self.transform_panel = None
+        ds = self.registry.get(self.active_name) if self.active_name else None
+        if ds is None:
+            with self.transform_container:
+                with ui.column().classes("w-full items-center justify-center py-16 gap-2"):
+                    ui.icon("transform", size="48px").classes("opacity-30")
+                    ui.label("Load a dataset first").classes("opacity-60")
+            return
+
+        with self.transform_container:
+            with ui.row().classes("items-center justify-between w-full"):
+                with ui.column().classes("gap-0"):
+                    ui.label("Transform").classes("text-lg font-medium")
+                    ui.label(
+                        "Sort, rename, create computed columns, and run "
+                        "group-by aggregations."
+                    ).classes("text-xs opacity-50")
+            self.transform_panel = TransformPanel(
+                self.transform_container, ds.columns,
+                on_sort=self._on_transform_sort,
+                on_rename=self._on_transform_rename,
+                on_computed=self._on_transform_computed,
+                on_group_by=self._on_transform_group_by,
+            )
+
+    def _on_transform_sort(self, columns: list[str], descending: list[bool]) -> None:
+        ds = self.registry.get(self.active_name) if self.active_name else None
+        if ds is None:
+            ui.notify("No active dataset", type="warning", position="top")
+            return
+        try:
+            new_lf = sort_frame(ds.lazyframe, columns, descending)
+        except ValueError as err:
+            ui.notify(str(err), type="warning", position="top")
+            return
+        self._apply_transform(new_lf, "Sorted")
+
+    def _on_transform_rename(self, old: str, new: str) -> None:
+        ds = self.registry.get(self.active_name) if self.active_name else None
+        if ds is None:
+            ui.notify("No active dataset", type="warning", position="top")
+            return
+        try:
+            new_lf = rename_column(ds.lazyframe, old, new)
+        except ValueError as err:
+            ui.notify(str(err), type="warning", position="top")
+            return
+        self._apply_transform(new_lf, f"Renamed {old} → {new}")
+
+    def _on_transform_computed(
+        self,
+        name: str,
+        category: str,
+        op: str,
+        col_a: str | None,
+        col_b: str | None,
+        scalar: str | None,
+        then_value: str | None,
+        else_value: str | None,
+    ) -> None:
+        ds = self.registry.get(self.active_name) if self.active_name else None
+        if ds is None:
+            ui.notify("No active dataset", type="warning", position="top")
+            return
+        try:
+            new_lf = add_computed_column(
+                ds.lazyframe, name, category, op,
+                col_a=col_a, col_b=col_b, scalar=scalar,
+                then_value=then_value, else_value=else_value,
+            )
+        except ValueError as err:
+            ui.notify(str(err), type="warning", position="top")
+            return
+        self._apply_transform(new_lf, f"Added computed column {name!r}")
+
+    def _on_transform_group_by(
+        self, group_cols: list[str], agg_col: str | None, agg_op: str, out_name: str,
+    ) -> None:
+        ds = self.registry.get(self.active_name) if self.active_name else None
+        if ds is None:
+            ui.notify("No active dataset", type="warning", position="top")
+            return
+        try:
+            new_lf = group_by_agg(ds.lazyframe, group_cols, agg_col, agg_op, out_name)
+            df = new_lf.collect()
+        except ValueError as err:
+            ui.notify(str(err), type="warning", position="top")
+            return
+        except Exception as err:
+            ui.notify(f"Could not aggregate: {err}", type="negative", position="top")
+            return
+        base = self.active_name or "dataset"
+        label = f"{base}_grouped"
+        from datasium.dataset import Dataset
+        unique = self.registry._unique(label)
+        new_ds = Dataset(name=unique, source=f"group_by({base})", lazyframe=df.lazy())
+        self.registry._items[unique] = new_ds
+        self.active_name = unique
+        self._refresh_all_tabs()
+        ar, ac = df.shape
+        ui.notify(
+            f"Group-by → new dataset {unique!r} · {ar:,} row(s) × {ac} column(s)",
+            type="positive", position="top",
+        )
+
+    def _apply_transform(self, new_lf: pl.LazyFrame, label: str) -> bool:
+        ds = self.registry.get(self.active_name) if self.active_name else None
+        if ds is None:
+            ui.notify("No active dataset", type="warning", position="top")
+            return False
+        try:
+            new_lf.collect_schema()
+            df = new_lf.collect()
+        except Exception as err:
+            ui.notify(f"Could not apply transform: {err}", type="negative", position="top")
+            return False
+        self.registry.replace(self.active_name, df.lazy())
+        self.selected_columns = None
+        self._refresh_all_tabs()
+        ar, ac = df.shape
+        ui.notify(f"{label} · now {ar:,} row(s) × {ac} column(s)",
+                  type="positive", position="top")
+        return True
+
+    def _refresh_all_tabs(self) -> None:
         self._render_list()
         self._render_select_tab()
         self._render_view_tab()
         self._render_remove_tab()
         self._render_edit_tab()
+        self._render_transform_tab()
         self._render_calculate_tab()
         self._render_query_tab()
         self._render_plot_tab()
         self._render_write_tab()
-        ui.notify(f"Removed · now {ar:,} row(s) × {ac} column(s)",
-                  type="positive", position="top")
 
     # ---------------------------------------------------------------- edit tab
     def _render_edit_tab(self) -> None:
@@ -383,15 +526,7 @@ class App:
             return False
         self.registry.replace(self.active_name, df.lazy())
         self.selected_columns = None
-        self._render_list()
-        self._render_select_tab()
-        self._render_view_tab()
-        self._render_remove_tab()
-        self._render_edit_tab()
-        self._render_calculate_tab()
-        self._render_query_tab()
-        self._render_plot_tab()
-        self._render_write_tab()
+        self._refresh_all_tabs()
         ar, ac = df.shape
         ui.notify(f"{label} · now {ar:,} row(s) × {ac} column(s)",
                   type="positive", position="top")
@@ -664,15 +799,7 @@ class App:
             return
         self.registry.replace(self.active_name, df.lazy())
         self.selected_columns = None
-        self._render_list()
-        self._render_select_tab()
-        self._render_view_tab()
-        self._render_remove_tab()
-        self._render_edit_tab()
-        self._render_calculate_tab()
-        self._render_query_tab()
-        self._render_plot_tab()
-        self._render_write_tab()
+        self._refresh_all_tabs()
         ar, ac = df.shape
         ui.notify(f"Selection saved · now {ar:,} row(s) × {ac} column(s)",
                   type="positive", position="top")
@@ -868,15 +995,7 @@ class App:
             raw = e.content.read()
             ds = self.registry.load(e.name, raw)
             self.active_name = ds.name
-            self._render_list()
-            self._render_select_tab()
-            self._render_view_tab()
-            self._render_remove_tab()
-            self._render_edit_tab()
-            self._render_calculate_tab()
-            self._render_plot_tab()
-            self._render_query_tab()
-            self._render_write_tab()
+            self._refresh_all_tabs()
             self.tabs.set_value("Select")
             ui.notify(f"Loaded {ds.name}", type="positive", position="top")
         except UnsupportedFormatError as err:
@@ -887,29 +1006,13 @@ class App:
     def _on_remove(self) -> None:
         self.registry.remove(self.active_name)  # type: ignore[arg-type]
         self.active_name = next(iter(self.registry.names()), None)
-        self._render_list()
-        self._render_select_tab()
-        self._render_view_tab()
-        self._render_remove_tab()
-        self._render_edit_tab()
-        self._render_calculate_tab()
-        self._render_query_tab()
-        self._render_plot_tab()
-        self._render_write_tab()
+        self._refresh_all_tabs()
 
     def _select(self, name: str) -> None:
         self.active_name = name
         self.selected_columns = None
         self.preview_mode = "selected"
-        self._render_list()
-        self._render_select_tab()
-        self._render_view_tab()
-        self._render_remove_tab()
-        self._render_edit_tab()
-        self._render_calculate_tab()
-        self._render_query_tab()
-        self._render_plot_tab()
-        self._render_write_tab()
+        self._refresh_all_tabs()
         self.tabs.set_value("Select")
 
 

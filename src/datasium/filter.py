@@ -42,12 +42,19 @@ _OPERATORS: dict[str, list[tuple[str, str]]] = {
     "numeric": [
         ("equals", "eq"), ("not equals", "ne"),
         (">", "gt"), (">=", "ge"), ("<", "lt"), ("<=", "le"),
+        ("between", "between"), ("not between", "not_between"),
+        ("is in", "is_in"),
         ("is null", "is_null"), ("is not null", "is_not_null"),
+        ("is NaN", "is_nan"), ("is not NaN", "is_not_nan"),
     ],
     "string": [
         ("equals", "eq"), ("not equals", "ne"),
-        ("contains", "contains"), ("starts with", "starts_with"),
-        ("ends with", "ends_with"), ("is in", "is_in"),
+        ("contains", "contains"), ("not contains", "not_contains"),
+        ("starts with", "starts_with"), ("ends with", "ends_with"),
+        ("matches regex", "regex"),
+        ("is in", "is_in"),
+        ("length equals", "str_len_eq"),
+        ("length >", "str_len_gt"), ("length <", "str_len_lt"),
         ("is null", "is_null"), ("is not null", "is_not_null"),
     ],
     "boolean": [
@@ -57,6 +64,7 @@ _OPERATORS: dict[str, list[tuple[str, str]]] = {
     "temporal": [
         ("equals", "eq"), ("not equals", "ne"),
         (">", "gt"), (">=", "ge"), ("<", "lt"), ("<=", "le"),
+        ("between", "between"), ("not between", "not_between"),
         ("is null", "is_null"), ("is not null", "is_not_null"),
     ],
     "other": [
@@ -65,7 +73,8 @@ _OPERATORS: dict[str, list[tuple[str, str]]] = {
     ],
 }
 
-_NULLARY = {"is_null", "is_not_null", "is_true", "is_false"}
+_NULLARY = {"is_null", "is_not_null", "is_true", "is_false", "is_nan", "is_not_nan"}
+_RANGE_OPS = {"between", "not_between"}
 
 
 class FilterRow:
@@ -130,6 +139,12 @@ class FilterRow:
     def _update_value_visibility(self) -> None:
         key = self.op_select.value
         self.value_input.set_visibility(key not in _NULLARY)
+        if key in _RANGE_OPS:
+            self.value_input.props('placeholder="lo, hi"')
+        elif key == "is_in":
+            self.value_input.props('placeholder="val1, val2, …"')
+        else:
+            self.value_input.props('placeholder=""')
 
     # ---- public ---------------------------------------------------------
     def build_term(self) -> pl.Expr:
@@ -165,14 +180,41 @@ def build_term(
         return col
     if op == "is_false":
         return col.not_()
+    if op == "is_nan":
+        return col.is_nan()
+    if op == "is_not_nan":
+        return col.is_not_nan()
 
     group = _dtype_group(dtype) if dtype is not None else "other"
+
+    if op in _RANGE_OPS:
+        parts = [v.strip() for v in (raw or "").split(",")]
+        if len(parts) != 2 or not parts[0] or not parts[1]:
+            raise ValueError(
+                f"{name}: 'between' needs two comma-separated values, e.g. '10, 50'")
+        lo = _coerce(parts[0], dtype)
+        hi = _coerce(parts[1], dtype)
+        expr = col.is_between(lo, hi, closed="both")
+        return expr if op == "between" else ~expr
+
     if op == "is_in":
         values = [v.strip() for v in (raw or "").split(",") if v.strip()]
         if not values:
             raise ValueError(f"{name}: supply at least one value for 'is in'")
         coerced = [_coerce(v, dtype) for v in values]
         return col.is_in(coerced)
+
+    if op in ("str_len_eq", "str_len_gt", "str_len_lt"):
+        try:
+            length = int(raw)
+        except (ValueError, TypeError):
+            raise ValueError(f"{name}: expected an integer length, got {raw!r}")
+        str_len = col.str.len_chars()
+        if op == "str_len_eq":
+            return str_len == length
+        if op == "str_len_gt":
+            return str_len > length
+        return str_len < length
 
     literal = _coerce(raw, dtype) if group != "other" else (raw or "")
     if op == "eq":
@@ -189,10 +231,16 @@ def build_term(
         return col <= literal
     if op == "contains":
         return col.str.contains(raw or "", literal=True)
+    if op == "not_contains":
+        return ~col.str.contains(raw or "", literal=True)
     if op == "starts_with":
         return col.str.starts_with(raw or "")
     if op == "ends_with":
         return col.str.ends_with(raw or "")
+    if op == "regex":
+        if not raw:
+            raise ValueError(f"{name}: supply a regex pattern")
+        return col.str.contains(raw, literal=False)
     raise ValueError(f"unknown operator {op!r}")
 
 
