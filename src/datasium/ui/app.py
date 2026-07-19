@@ -45,6 +45,7 @@ from datasium.transform import (
     sort_frame,
     unpivot_frame,
 )
+from datasium.cluster import ClusterPanel, run_clustering, build_cluster_figure
 from datasium.write import WritePanel, save_frame, apply_selection, copy_to_clipboard, write_to_database, SUPPORTED_FORMATS
 
 import polars as pl
@@ -80,6 +81,8 @@ class App:
         self.edit_panel: EditPanel | None = None
         self.write_panel: WritePanel | None = None
         self.plot_panel: PlotPanel | None = None
+        self.cluster_panel: ClusterPanel | None = None
+        self._cluster_result: pl.DataFrame | None = None
         self.transform_panel: TransformPanel | None = None
         self.preview_limit_mode = "all"  # "all" | "first" | "random"
         self.preview_limit_n = 100
@@ -117,6 +120,7 @@ class App:
             ui.tab("Transform", icon="transform")
             ui.tab("Calculate", icon="functions")
             ui.tab("Plot", icon="show_chart")
+            ui.tab("Cluster", icon="scatter_plot")
             ui.tab("Write", icon="save")
 
         with ui.tab_panels(self.tabs, value="Load").classes("w-full"):
@@ -147,6 +151,9 @@ class App:
             with ui.tab_panel("Plot"):
                 self.plot_root = ui.column().classes("w-full p-4")
                 self._render_plot_tab()
+            with ui.tab_panel("Cluster"):
+                self.cluster_container = ui.column().classes("w-full p-4")
+                self._render_cluster_tab()
             with ui.tab_panel("Write"):
                 self.write_container = ui.column().classes("w-full p-4")
                 self._render_write_tab()
@@ -735,6 +742,7 @@ class App:
         self._render_calculate_tab()
         self._render_query_tab()
         self._render_plot_tab()
+        self._render_cluster_tab()
         self._render_write_tab()
 
     # ---------------------------------------------------------------- edit tab
@@ -1019,6 +1027,104 @@ class App:
             f"{'current selection' if scope == 'selection' else 'entire dataset'}{filt}"
         )
         self.plot_panel.render_plot(fig)
+
+    # ------------------------------------------------------------ cluster tab
+    def _render_cluster_tab(self) -> None:
+        self.cluster_container.clear()
+        self.cluster_panel = None
+        self._cluster_result = None
+        ds = self.registry.get(self.active_name) if self.active_name else None
+        if ds is None:
+            with self.cluster_container:
+                with ui.column().classes(
+                    "w-full items-center justify-center py-16 gap-2"
+                ):
+                    ui.icon("scatter_plot", size="48px").classes("opacity-30")
+                    ui.label("Load a dataset first").classes("opacity-60")
+            return
+
+        with self.cluster_container:
+            with ui.row().classes("items-center justify-between w-full"):
+                with ui.column().classes("gap-0"):
+                    ui.label("Cluster").classes("text-lg font-medium")
+                    ui.label(
+                        "Run a scikit-learn clustering algorithm on numeric "
+                        "columns. Preview the result as a scatter plot, then "
+                        "apply to add a cluster label column."
+                    ).classes("text-xs opacity-50")
+            self.cluster_panel = ClusterPanel(
+                self.cluster_container,
+                ds.columns,
+                self._run_cluster,
+                self._apply_cluster,
+            )
+
+    def _run_cluster(self) -> None:
+        if self.cluster_panel is None:
+            return
+        ds = self.registry.get(self.active_name) if self.active_name else None
+        if ds is None:
+            return
+        spec = self.cluster_panel.spec
+        try:
+            lf = ds.lazyframe
+            expr = self.filter_builder.build_expr() if self.filter_builder else None
+            if expr is not None:
+                lf = lf.filter(expr)
+            df = lf.collect()
+            result = run_clustering(df, spec)
+        except ValueError as err:
+            self._cluster_result = None
+            self.cluster_panel.set_meta(str(err))
+            self.cluster_panel.render_error(str(err))
+            ui.notify(str(err), type="warning", position="top")
+            return
+        except Exception as err:
+            self._cluster_result = None
+            msg = f"Could not run clustering: {err}"
+            self.cluster_panel.set_meta(msg)
+            self.cluster_panel.render_error(msg)
+            ui.notify(msg, type="negative", position="top")
+            return
+
+        self._cluster_result = result
+        out_col = spec.output_column or "cluster"
+        n_clusters = result[out_col].n_unique()
+        noise = result.filter(pl.col(out_col) == -1).height
+        meta = (
+            f"{spec.algorithm} · {result.height:,} row(s) · "
+            f"{n_clusters} cluster(s)"
+        )
+        if noise:
+            meta += f" · {noise:,} noise point(s)"
+        self.cluster_panel.set_meta(meta)
+        try:
+            fig = build_cluster_figure(result, spec)
+            self.cluster_panel.render_plot(fig)
+        except Exception:
+            self.cluster_panel.render_plot(
+                {"data": [], "layout": {"title": {"text": "No plot available"}}}
+            )
+
+    def _apply_cluster(self) -> None:
+        ds = self.registry.get(self.active_name) if self.active_name else None
+        if ds is None or self._cluster_result is None:
+            ui.notify("Run clustering first", type="warning", position="top")
+            return
+        spec = self.cluster_panel.spec if self.cluster_panel else None
+        if spec is None:
+            return
+        out_col = spec.output_column or "cluster"
+        result = self._cluster_result
+        self.registry.replace(ds.name, result.lazy())
+        self.selected_columns = None
+        ar, ac = result.shape
+        ui.notify(
+            f"Cluster column {out_col!r} added · now {ar:,} row(s) × {ac} column(s)",
+            type="positive",
+            position="top",
+        )
+        self._refresh_all_tabs()
 
     # --------------------------------------------------------------- write tab
     def _render_write_tab(self) -> None:
