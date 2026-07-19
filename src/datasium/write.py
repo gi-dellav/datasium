@@ -141,133 +141,125 @@ class WritePanel:
             ui.separator()
 
             # --- 2. Save selection into the current dataset ---
-            ui.label("Save selection into dataset").classes("text-lg font-medium mt-2")
-            ui.label(
-                "Replace the active dataset with the rows and columns defined "
-                "by the Select tab filters."
-            ).classes("text-xs opacity-50")
-            ui.button(
-                "Save selection into dataset",
-                icon="content_copy",
-                on_click=lambda _=None: self._on_save_selection(),
-            ).props("dense unelevated color=primary")
-
-            ui.separator()
+            with ui.expansion("Save selection into dataset", icon="content_copy").classes("w-full"):
+                ui.label(
+                    "Replace the active dataset with the rows and columns defined "
+                    "by the Select tab filters."
+                ).classes("text-xs opacity-50")
+                ui.button(
+                    "Save selection into dataset",
+                    icon="content_copy",
+                    on_click=lambda _=None: self._on_save_selection(),
+                ).props("dense unelevated color=primary")
 
             # --- 3. Export dataset to a new file ---
-            ui.label("Export dataset").classes("text-lg font-medium mt-2")
-            ui.label(
-                "Write the full active dataset to a new file. "
-                "Optionally name it for the registry."
-            ).classes("text-xs opacity-50")
-            with ui.row().classes("items-center gap-2 w-full"):
-                self.export_ds_path = (
-                    ui.input(
-                        value="",
-                        label="File path",
-                        placeholder="e.g. /tmp/out.csv",
+            with ui.expansion("Export dataset", icon="file_download").classes("w-full"):
+                ui.label(
+                    "Write the full active dataset to a new file. "
+                    "Optionally name it for the registry."
+                ).classes("text-xs opacity-50")
+                with ui.row().classes("items-center gap-2 w-full"):
+                    self.export_ds_path = (
+                        ui.input(
+                            value="",
+                            label="File path",
+                            placeholder="e.g. /tmp/out.csv",
+                        )
+                        .props("dense outlined")
+                        .classes("w-64")
                     )
-                    .props("dense outlined")
-                    .classes("w-64")
-                )
-                self.export_ds_name = (
-                    ui.input(
-                        value="",
-                        label="Registry name (optional)",
+                    self.export_ds_name = (
+                        ui.input(
+                            value="",
+                            label="Registry name (optional)",
+                        )
+                        .props("dense outlined")
+                        .classes("w-40")
                     )
-                    .props("dense outlined")
-                    .classes("w-40")
-                )
-                ui.button(
-                    "Export dataset",
-                    icon="file_download",
-                    on_click=lambda _=None: self._on_export_dataset(
-                        self.export_ds_path.value or "",
-                        self.export_ds_name.value or "",
-                    ),
-                ).props("dense unelevated color=primary")
-
-            ui.separator()
+                    ui.button(
+                        "Export dataset",
+                        icon="file_download",
+                        on_click=lambda _=None: self._on_export_dataset(
+                            self.export_ds_path.value or "",
+                            self.export_ds_name.value or "",
+                        ),
+                    ).props("dense unelevated color=primary")
 
             # --- 4. Export selection to a new file / dataset ---
-            ui.label("Export selection").classes("text-lg font-medium mt-2")
-            ui.label(
-                "Write the current selection (filters + columns from the "
-                "Select tab) to a new file. Optionally name it for the registry."
-            ).classes("text-xs opacity-50")
-            with ui.row().classes("items-center gap-2 w-full"):
-                self.export_sel_path = (
-                    ui.input(
-                        value="",
-                        label="File path",
-                        placeholder="e.g. /tmp/selection.csv",
+            with ui.expansion("Export selection", icon="file_save").classes("w-full"):
+                ui.label(
+                    "Write the current selection (filters + columns from the "
+                    "Select tab) to a new file. Optionally name it for the registry."
+                ).classes("text-xs opacity-50")
+                with ui.row().classes("items-center gap-2 w-full"):
+                    self.export_sel_path = (
+                        ui.input(
+                            value="",
+                            label="File path",
+                            placeholder="e.g. /tmp/selection.csv",
+                        )
+                        .props("dense outlined")
+                        .classes("w-64")
                     )
-                    .props("dense outlined")
-                    .classes("w-64")
-                )
-                self.export_sel_name = (
-                    ui.input(
-                        value="",
-                        label="Registry name (optional)",
+                    self.export_sel_name = (
+                        ui.input(
+                            value="",
+                            label="Registry name (optional)",
+                        )
+                        .props("dense outlined")
+                        .classes("w-40")
                     )
-                    .props("dense outlined")
-                    .classes("w-40")
-                )
-                ui.button(
-                    "Export selection",
-                    icon="file_save",
-                    on_click=lambda _=None: self._on_export_selection(
-                        self.export_sel_path.value or "",
-                        self.export_sel_name.value or "",
-                    ),
-                ).props("dense unelevated color=primary")
-
-            ui.separator()
+                    ui.button(
+                        "Export selection",
+                        icon="file_save",
+                        on_click=lambda _=None: self._on_export_selection(
+                            self.export_sel_path.value or "",
+                            self.export_sel_name.value or "",
+                        ),
+                    ).props("dense unelevated color=primary")
 
             # --- 5. Copy to clipboard ---
-            ui.label("Copy to clipboard").classes("text-lg font-medium mt-2")
-            ui.label(
-                "Copy the active dataset to the system clipboard as "
-                "tab-separated text."
-            ).classes("text-xs opacity-50")
-            ui.button(
-                "Copy to clipboard",
-                icon="content_copy",
-                on_click=lambda _=None: self._on_copy_clipboard(),
-            ).props("dense unelevated color=primary")
-
-            ui.separator()
+            with ui.expansion("Copy to clipboard", icon="content_copy").classes("w-full"):
+                ui.label(
+                    "Copy the active dataset to the system clipboard as "
+                    "tab-separated text."
+                ).classes("text-xs opacity-50")
+                ui.button(
+                    "Copy to clipboard",
+                    icon="content_copy",
+                    on_click=lambda _=None: self._on_copy_clipboard(),
+                ).props("dense unelevated color=primary")
 
             # --- 6. Export to database ---
-            ui.label("Export to database").classes("text-lg font-medium mt-2")
-            ui.label(
-                "Write the active dataset to a database table via a "
-                "connection URI."
-            ).classes("text-xs opacity-50")
-            with ui.row().classes("items-center gap-2 w-full"):
-                self.db_connection = (
-                    ui.input(
-                        value="",
-                        label="Connection URI",
-                        placeholder="e.g. postgresql://user:pass@host/db",
+            with ui.expansion("Export to database", icon="storage").classes("w-full"):
+                ui.label(
+                    "Write the active dataset to a database table via a "
+                    "connection URI."
+                ).classes("text-xs opacity-50")
+                with ui.row().classes("items-center gap-2 w-full"):
+                    self.db_connection = (
+                        ui.input(
+                            value="",
+                            label="Connection URI",
+                            placeholder="e.g. postgresql://user:pass@host/db",
+                        )
+                        .props("dense outlined")
+                        .classes("w-64")
                     )
-                    .props("dense outlined")
-                    .classes("w-64")
-                )
-                self.db_table = (
-                    ui.input(
-                        value="",
-                        label="Table name",
-                        placeholder="e.g. my_table",
+                    self.db_table = (
+                        ui.input(
+                            value="",
+                            label="Table name",
+                            placeholder="e.g. my_table",
+                        )
+                        .props("dense outlined")
+                        .classes("w-40")
                     )
-                    .props("dense outlined")
-                    .classes("w-40")
-                )
-                ui.button(
-                    "Export to database",
-                    icon="storage",
-                    on_click=lambda _=None: self._on_export_database(
-                        self.db_connection.value or "",
-                        self.db_table.value or "",
-                    ),
-                ).props("dense unelevated color=primary")
+                    ui.button(
+                        "Export to database",
+                        icon="storage",
+                        on_click=lambda _=None: self._on_export_database(
+                            self.db_connection.value or "",
+                            self.db_table.value or "",
+                        ),
+                    ).props("dense unelevated color=primary")

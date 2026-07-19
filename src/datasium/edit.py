@@ -299,21 +299,21 @@ class EditPanel:
         self._on_replace_values = on_replace_values
 
         with parent:
-            self._build_cast_section()
-            ui.separator()
-            self._build_add_column_section()
-            ui.separator()
-            self._build_add_row_section()
-            ui.separator()
-            self._build_edit_row_section()
-            ui.separator()
-            self._build_fill_nulls_section()
-            ui.separator()
-            self._build_replace_values_section()
+            with ui.expansion("Edit column type", icon="swap_horiz").classes("w-full"):
+                self._build_cast_section()
+            with ui.expansion("Add column", icon="add").classes("w-full"):
+                self._build_add_column_section()
+            with ui.expansion("Add row", icon="add_box").classes("w-full"):
+                self._build_add_row_section()
+            with ui.expansion("Edit a cell", icon="edit").classes("w-full"):
+                self._build_edit_row_section()
+            with ui.expansion("Fill nulls", icon="format_color_fill").classes("w-full"):
+                self._build_fill_nulls_section()
+            with ui.expansion("Replace values", icon="find_replace").classes("w-full"):
+                self._build_replace_values_section()
 
     # ---- 1. cast --------------------------------------------------------
     def _build_cast_section(self) -> None:
-        ui.label("Edit column type").classes("text-lg font-medium")
         ui.label("Cast a column to a different dtype.").classes("text-xs opacity-50")
         with ui.row().classes("items-center gap-2 w-full"):
             self.cast_col = (
@@ -344,7 +344,6 @@ class EditPanel:
 
     # ---- 2. add column --------------------------------------------------
     def _build_add_column_section(self) -> None:
-        ui.label("Add column").classes("text-lg font-medium mt-2")
         ui.label("Append a new column. Leave the fill value blank for nulls.").classes(
             "text-xs opacity-50"
         )
@@ -386,7 +385,6 @@ class EditPanel:
 
     # ---- 3. add row ------------------------------------------------------
     def _build_add_row_section(self) -> None:
-        ui.label("Add row").classes("text-lg font-medium mt-2")
         ui.label(
             "Fill in a value per column (blank = null) and append a new row."
         ).classes("text-xs opacity-50")
@@ -412,7 +410,6 @@ class EditPanel:
 
     # ---- 4. edit row -----------------------------------------------------
     def _build_edit_row_section(self) -> None:
-        ui.label("Edit a cell").classes("text-lg font-medium mt-2")
         ui.label(
             "Pick the target row either by its 1-based number or by equal-to "
             "constraints that select exactly one row, then set the new value."
@@ -554,7 +551,6 @@ class EditPanel:
 
     # ---- 5. fill nulls ---------------------------------------------------
     def _build_fill_nulls_section(self) -> None:
-        ui.label("Fill nulls").classes("text-lg font-medium mt-2")
         ui.label("Replace null values in a column using a strategy.").classes(
             "text-xs opacity-50"
         )
@@ -603,7 +599,6 @@ class EditPanel:
 
     # ---- 6. replace values ------------------------------------------------
     def _build_replace_values_section(self) -> None:
-        ui.label("Replace values").classes("text-lg font-medium mt-2")
         ui.label(
             "Replace every occurrence of a value in a column. "
             "Leave 'Old value' blank to target null cells."

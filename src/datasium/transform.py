@@ -649,25 +649,25 @@ class TransformPanel:
         self._dataset_names = dataset_names or []
 
         with parent:
-            self._build_sort_section()
-            ui.separator()
-            self._build_rename_section()
-            ui.separator()
-            self._build_computed_section()
-            ui.separator()
-            self._build_group_by_section()
-            ui.separator()
-            self._build_one_hot_section()
-            ui.separator()
-            self._build_pivot_section()
-            ui.separator()
-            self._build_unpivot_section()
-            ui.separator()
-            self._build_join_section()
+            with ui.expansion("Sort", icon="sort").classes("w-full"):
+                self._build_sort_section()
+            with ui.expansion("Rename column", icon="drive_file_rename_outline").classes("w-full"):
+                self._build_rename_section()
+            with ui.expansion("Computed column", icon="add_circle").classes("w-full"):
+                self._build_computed_section()
+            with ui.expansion("Group-by aggregation", icon="group_work").classes("w-full"):
+                self._build_group_by_section()
+            with ui.expansion("One-hot encoding", icon="grid_on").classes("w-full"):
+                self._build_one_hot_section()
+            with ui.expansion("Pivot (wide)", icon="pivot_table_chart").classes("w-full"):
+                self._build_pivot_section()
+            with ui.expansion("Unpivot (melt to long)", icon="unpublished").classes("w-full"):
+                self._build_unpivot_section()
+            with ui.expansion("Join / merge datasets", icon="merge_type").classes("w-full"):
+                self._build_join_section()
 
     # ---- 1. sort ----------------------------------------------------------
     def _build_sort_section(self) -> None:
-        ui.label("Sort").classes("text-lg font-medium")
         ui.label(
             "Sort rows by one or more columns. Toggle descending per column."
         ).classes("text-xs opacity-50")
@@ -718,7 +718,6 @@ class TransformPanel:
 
     # ---- 2. rename --------------------------------------------------------
     def _build_rename_section(self) -> None:
-        ui.label("Rename column").classes("text-lg font-medium mt-2")
         ui.label("Rename a column in the dataset.").classes("text-xs opacity-50")
         with ui.row().classes("items-center gap-2 w-full"):
             self.rename_old = (
@@ -748,7 +747,6 @@ class TransformPanel:
 
     # ---- 3. computed column -----------------------------------------------
     def _build_computed_section(self) -> None:
-        ui.label("Computed column").classes("text-lg font-medium mt-2")
         ui.label(
             "Create a new column from an expression. Choose a category, "
             "then fill in the relevant fields."
@@ -991,7 +989,6 @@ class TransformPanel:
 
     # ---- 4. group-by aggregation ------------------------------------------
     def _build_group_by_section(self) -> None:
-        ui.label("Group-by aggregation").classes("text-lg font-medium mt-2")
         ui.label(
             "Group rows and aggregate a column. Produces a new, smaller "
             "dataset (saved to a new parallel dataset)."
@@ -1068,7 +1065,6 @@ class TransformPanel:
 
     # ---- 5. one-hot encoding ----------------------------------------------
     def _build_one_hot_section(self) -> None:
-        ui.label("One-hot encoding").classes("text-lg font-medium mt-2")
         ui.label(
             "Create one boolean column per unique value of a categorical column."
         ).classes("text-xs opacity-50")
@@ -1090,7 +1086,6 @@ class TransformPanel:
 
     # ---- 6. pivot -----------------------------------------------------------
     def _build_pivot_section(self) -> None:
-        ui.label("Pivot (wide)").classes("text-lg font-medium mt-2")
         ui.label(
             "Spread unique values of a column into new column headers."
         ).classes("text-xs opacity-50")
@@ -1162,7 +1157,6 @@ class TransformPanel:
 
     # ---- 7. unpivot (melt) --------------------------------------------------
     def _build_unpivot_section(self) -> None:
-        ui.label("Unpivot (melt to long)").classes("text-lg font-medium mt-2")
         ui.label(
             "Reshape from wide to long format. ID columns stay; value "
             "columns are stacked."
@@ -1224,7 +1218,6 @@ class TransformPanel:
 
     # ---- 8. join / merge ----------------------------------------------------
     def _build_join_section(self) -> None:
-        ui.label("Join / merge datasets").classes("text-lg font-medium mt-2")
         ui.label(
             "Join the active dataset with another loaded dataset. "
             "The result is saved as a new dataset."

@@ -178,100 +178,96 @@ class App:
                 "w-full"
             )
 
-            ui.separator()
-
             # --- Clipboard import ---
-            ui.label("Paste from clipboard").classes("text-lg font-medium mt-2")
-            ui.label(
-                "Read tab-separated data from the system clipboard."
-            ).classes("text-xs opacity-50")
-            with ui.row().classes("items-center gap-2"):
-                self.clipboard_name = (
-                    ui.input(value="", label="Dataset name (optional)")
-                    .props("dense outlined")
-                    .classes("w-40")
-                )
-                ui.button(
-                    "Paste",
-                    icon="content_paste",
-                    on_click=self._on_load_clipboard,
-                ).props("dense unelevated color=primary")
-
-            ui.separator()
+            with ui.expansion("Paste from clipboard", icon="content_paste").classes(
+                "w-full"
+            ):
+                ui.label(
+                    "Read tab-separated data from the system clipboard."
+                ).classes("text-xs opacity-50")
+                with ui.row().classes("items-center gap-2"):
+                    self.clipboard_name = (
+                        ui.input(value="", label="Dataset name (optional)")
+                        .props("dense outlined")
+                        .classes("w-40")
+                    )
+                    ui.button(
+                        "Paste",
+                        icon="content_paste",
+                        on_click=self._on_load_clipboard,
+                    ).props("dense unelevated color=primary")
 
             # --- Database import ---
-            ui.label("Load from database").classes("text-lg font-medium mt-2")
-            ui.label(
-                "Run a SQL query against a database via a connection URI "
-                "(requires connectorx)."
-            ).classes("text-xs opacity-50")
-            with ui.row().classes("items-center gap-2 w-full"):
-                self.db_uri = (
-                    ui.input(
-                        value="",
-                        label="Connection URI",
-                        placeholder="e.g. postgresql://user:pass@host/db",
+            with ui.expansion("Load from database", icon="storage").classes("w-full"):
+                ui.label(
+                    "Run a SQL query against a database via a connection URI "
+                    "(requires connectorx)."
+                ).classes("text-xs opacity-50")
+                with ui.row().classes("items-center gap-2 w-full"):
+                    self.db_uri = (
+                        ui.input(
+                            value="",
+                            label="Connection URI",
+                            placeholder="e.g. postgresql://user:pass@host/db",
+                        )
+                        .props("dense outlined")
+                        .classes("w-64")
                     )
-                    .props("dense outlined")
-                    .classes("w-64")
-                )
-                self.db_query = (
-                    ui.input(
-                        value="",
-                        label="SQL query",
-                        placeholder="e.g. SELECT * FROM my_table",
+                    self.db_query = (
+                        ui.input(
+                            value="",
+                            label="SQL query",
+                            placeholder="e.g. SELECT * FROM my_table",
+                        )
+                        .props("dense outlined")
+                        .classes("w-64")
                     )
-                    .props("dense outlined")
-                    .classes("w-64")
-                )
-                self.db_load_name = (
-                    ui.input(value="", label="Dataset name (optional)")
-                    .props("dense outlined")
-                    .classes("w-40")
-                )
-                ui.button(
-                    "Load",
-                    icon="storage",
-                    on_click=self._on_load_database,
-                ).props("dense unelevated color=primary")
-
-            ui.separator()
+                    self.db_load_name = (
+                        ui.input(value="", label="Dataset name (optional)")
+                        .props("dense outlined")
+                        .classes("w-40")
+                    )
+                    ui.button(
+                        "Load",
+                        icon="storage",
+                        on_click=self._on_load_database,
+                    ).props("dense unelevated color=primary")
 
             # --- Iceberg import ---
-            ui.label("Load from Iceberg").classes("text-lg font-medium mt-2")
-            ui.label(
-                "Read an Apache Iceberg table (requires pyiceberg)."
-            ).classes("text-xs opacity-50")
-            with ui.row().classes("items-center gap-2 w-full"):
-                self.iceberg_catalog = (
-                    ui.input(
-                        value="default",
-                        label="Catalog name",
+            with ui.expansion("Load from Iceberg", icon="ice_skating").classes(
+                "w-full"
+            ):
+                ui.label(
+                    "Read an Apache Iceberg table (requires pyiceberg)."
+                ).classes("text-xs opacity-50")
+                with ui.row().classes("items-center gap-2 w-full"):
+                    self.iceberg_catalog = (
+                        ui.input(
+                            value="default",
+                            label="Catalog name",
+                        )
+                        .props("dense outlined")
+                        .classes("w-40")
                     )
-                    .props("dense outlined")
-                    .classes("w-40")
-                )
-                self.iceberg_table = (
-                    ui.input(
-                        value="",
-                        label="Table identifier",
-                        placeholder="e.g. namespace.table_name",
+                    self.iceberg_table = (
+                        ui.input(
+                            value="",
+                            label="Table identifier",
+                            placeholder="e.g. namespace.table_name",
+                        )
+                        .props("dense outlined")
+                        .classes("w-64")
                     )
-                    .props("dense outlined")
-                    .classes("w-64")
-                )
-                self.iceberg_name = (
-                    ui.input(value="", label="Dataset name (optional)")
-                    .props("dense outlined")
-                    .classes("w-40")
-                )
-                ui.button(
-                    "Load",
-                    icon="ice_skating",
-                    on_click=self._on_load_iceberg,
-                ).props("dense unelevated color=primary")
-
-            ui.separator()
+                    self.iceberg_name = (
+                        ui.input(value="", label="Dataset name (optional)")
+                        .props("dense outlined")
+                        .classes("w-40")
+                    )
+                    ui.button(
+                        "Load",
+                        icon="ice_skating",
+                        on_click=self._on_load_iceberg,
+                    ).props("dense unelevated color=primary")
             self.list_container = ui.column().classes("w-full gap-1")
             self._render_list()
 
@@ -326,37 +322,37 @@ class App:
                 self._stat("Source", Path(ds.source).suffix or "—", "save")
 
             ui.separator()
-            ui.label("Columns").classes("text-lg font-medium mt-2")
-            schema_cols = [
-                {
-                    "name": "idx",
-                    "label": "#",
-                    "field": "idx",
-                    "align": "left",
-                    "sortable": True,
-                },
-                {
-                    "name": "name",
-                    "label": "Name",
-                    "field": "name",
-                    "align": "left",
-                    "sortable": True,
-                },
-                {
-                    "name": "dtype",
-                    "label": "Type",
-                    "field": "dtype",
-                    "align": "left",
-                    "sortable": True,
-                },
-            ]
-            schema_rows = [
-                {"idx": i + 1, "name": name, "dtype": _human_dtype(dtype)}
-                for i, (name, dtype) in enumerate(ds.columns)
-            ]
-            ui.table(columns=schema_cols, rows=schema_rows, row_key="idx").props(
-                "flat dense rows-per-page-options=[0]"
-            ).classes("w-full")
+            with ui.expansion("Columns", icon="view_column").classes("w-full"):
+                schema_cols = [
+                    {
+                        "name": "idx",
+                        "label": "#",
+                        "field": "idx",
+                        "align": "left",
+                        "sortable": True,
+                    },
+                    {
+                        "name": "name",
+                        "label": "Name",
+                        "field": "name",
+                        "align": "left",
+                        "sortable": True,
+                    },
+                    {
+                        "name": "dtype",
+                        "label": "Type",
+                        "field": "dtype",
+                        "align": "left",
+                        "sortable": True,
+                    },
+                ]
+                schema_rows = [
+                    {"idx": i + 1, "name": name, "dtype": _human_dtype(dtype)}
+                    for i, (name, dtype) in enumerate(ds.columns)
+                ]
+                ui.table(columns=schema_cols, rows=schema_rows, row_key="idx").props(
+                    "flat dense rows-per-page-options=[0]"
+                ).classes("w-full")
 
             self._build_filter_panel(ds)
 
@@ -493,12 +489,12 @@ class App:
         ds_after = self.registry.get(self.active_name)
         ar, ac = ds_after.shape if ds_after is not None else (0, 0)
         self.selected_columns = None
-        self._refresh_all_tabs()
         ui.notify(
             f"Removed · now {ar:,} row(s) × {ac} column(s)",
             type="positive",
             position="top",
         )
+        self._refresh_all_tabs()
 
     # ------------------------------------------------------------ transform tab
     def _render_transform_tab(self) -> None:
@@ -622,13 +618,13 @@ class App:
         new_ds = Dataset(name=unique, source=f"group_by({base})", lazyframe=df.lazy())
         self.registry._items[unique] = new_ds
         self.active_name = unique
-        self._refresh_all_tabs()
         ar, ac = df.shape
         ui.notify(
             f"Group-by → new dataset {unique!r} · {ar:,} row(s) × {ac} column(s)",
             type="positive",
             position="top",
         )
+        self._refresh_all_tabs()
 
     def _on_transform_one_hot(self, column: str) -> None:
         ds = self.registry.get(self.active_name) if self.active_name else None
@@ -697,13 +693,13 @@ class App:
         )
         self.registry._items[unique] = new_ds
         self.active_name = unique
-        self._refresh_all_tabs()
         ar, ac = df.shape
         ui.notify(
             f"Join → new dataset {unique!r} · {ar:,} row(s) × {ac} column(s)",
             type="positive",
             position="top",
         )
+        self._refresh_all_tabs()
 
     def _apply_transform(self, new_lf: pl.LazyFrame, label: str) -> bool:
         ds = self.registry.get(self.active_name) if self.active_name else None
@@ -720,13 +716,13 @@ class App:
             return False
         self.registry.replace(ds.name, df.lazy())
         self.selected_columns = None
-        self._refresh_all_tabs()
         ar, ac = df.shape
         ui.notify(
             f"{label} · now {ar:,} row(s) × {ac} column(s)",
             type="positive",
             position="top",
         )
+        self._refresh_all_tabs()
         return True
 
     def _refresh_all_tabs(self) -> None:
@@ -787,13 +783,13 @@ class App:
             return False
         self.registry.replace(ds.name, df.lazy())
         self.selected_columns = None
-        self._refresh_all_tabs()
         ar, ac = df.shape
         ui.notify(
             f"{label} · now {ar:,} row(s) × {ac} column(s)",
             type="positive",
             position="top",
         )
+        self._refresh_all_tabs()
         return True
 
     def _on_edit_cast(self, column: str, dtype_key: str) -> None:
@@ -1087,13 +1083,13 @@ class App:
             return
         self.registry.replace(ds.name, df.lazy())
         self.selected_columns = None
-        self._refresh_all_tabs()
         ar, ac = df.shape
         ui.notify(
             f"Selection saved · now {ar:,} row(s) × {ac} column(s)",
             type="positive",
             position="top",
         )
+        self._refresh_all_tabs()
 
     def _on_write_export_dataset(self, path: str, name: str) -> None:
         ds = self.registry.get(self.active_name) if self.active_name else None
@@ -1373,9 +1369,9 @@ class App:
             raw = await e.file.read()
             ds = self.registry.load(e.file.name, raw)
             self.active_name = ds.name
+            ui.notify(f"Loaded {ds.name}", type="positive", position="top")
             self._refresh_all_tabs()
             self.tabs.set_value("Select")
-            ui.notify(f"Loaded {ds.name}", type="positive", position="top")
         except UnsupportedFormatError as err:
             ui.notify(str(err), type="warning", position="top")
         except Exception as err:  # polars read errors, malformed files, ...
@@ -1383,9 +1379,9 @@ class App:
 
     def _activate_loaded(self, ds: Dataset) -> None:
         self.active_name = ds.name
+        ui.notify(f"Loaded {ds.name}", type="positive", position="top")
         self._refresh_all_tabs()
         self.tabs.set_value("Select")
-        ui.notify(f"Loaded {ds.name}", type="positive", position="top")
 
     def _on_load_clipboard(self) -> None:
         try:
