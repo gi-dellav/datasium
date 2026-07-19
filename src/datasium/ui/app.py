@@ -33,7 +33,7 @@ from datasium.edit import (
     set_cell_by_key as _edit_set_cell_by_key,
 )
 from datasium.remove import RemovePanel, apply_removal
-from datasium.plot import PlotPanel, PlotSpec, build_figure
+from datasium.plot import PlotPanel, build_figure
 from datasium.transform import (
     TransformPanel,
     add_computed_column,
@@ -385,7 +385,7 @@ class App:
         except ValueError as err:
             ui.notify(str(err), type="warning", position="top")
             return
-        self.registry.replace(self.active_name, new_lf)
+        self.registry.replace(ds.name, new_lf)
         ds_after = self.registry.get(self.active_name)
         ar, ac = ds_after.shape if ds_after is not None else (0, 0)
         self.selected_columns = None
@@ -532,7 +532,7 @@ class App:
                 f"Could not apply transform: {err}", type="negative", position="top"
             )
             return False
-        self.registry.replace(self.active_name, df.lazy())
+        self.registry.replace(ds.name, df.lazy())
         self.selected_columns = None
         self._refresh_all_tabs()
         ar, ac = df.shape
@@ -599,7 +599,7 @@ class App:
         except Exception as err:  # dtype cast failures, bad literals, ...
             ui.notify(f"Could not apply edit: {err}", type="negative", position="top")
             return False
-        self.registry.replace(self.active_name, df.lazy())
+        self.registry.replace(ds.name, df.lazy())
         self.selected_columns = None
         self._refresh_all_tabs()
         ar, ac = df.shape
@@ -894,7 +894,7 @@ class App:
                 f"Could not apply selection: {err}", type="negative", position="top"
             )
             return
-        self.registry.replace(self.active_name, df.lazy())
+        self.registry.replace(ds.name, df.lazy())
         self.selected_columns = None
         self._refresh_all_tabs()
         ar, ac = df.shape
@@ -919,8 +919,10 @@ class App:
             ui.notify(f"Could not export: {err}", type="negative", position="top")
             return
         if name.strip():
-            self.registry.load(path, open(path, "rb").read(), name=name.strip())
-            self.active_name = name.strip()
+            new_ds = self.registry.load(
+                path, Path(path).read_bytes(), name=name.strip()
+            )
+            self.active_name = new_ds.name
             self._render_list()
 
     def _on_write_export_selection(self, path: str, name: str) -> None:
@@ -940,8 +942,10 @@ class App:
             ui.notify(f"Could not export: {err}", type="negative", position="top")
             return
         if name.strip():
-            self.registry.load(path, open(path, "rb").read(), name=name.strip())
-            self.active_name = name.strip()
+            new_ds = self.registry.load(
+                path, Path(path).read_bytes(), name=name.strip()
+            )
+            self.active_name = new_ds.name
             self._render_list()
 
     # ------------------------------------------------------------- query tab

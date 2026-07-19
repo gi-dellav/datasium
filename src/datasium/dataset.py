@@ -30,8 +30,8 @@ class Dataset:
 
     @property
     def shape(self) -> tuple[int, int]:
-        # ponytail: schema gives height lazily only for some sources; for CSV
-        # the height is unknown until collect. Fall back to a cheap count.
+        # The height is unknown until collect for some sources (e.g. CSV),
+        # so fall back to a cheap count.
         height = self.lazyframe.select(pl.len()).collect().item()
         width = len(self.lazyframe.collect_schema())
         return int(height), int(width)

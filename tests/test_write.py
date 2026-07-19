@@ -8,7 +8,7 @@ import tempfile
 import polars as pl
 import pytest
 
-from datasium.write import apply_selection, save_frame, SUPPORTED_FORMATS
+from datasium.write import apply_selection, save_frame
 
 
 # ---------------------------------------------------------------------------

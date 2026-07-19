@@ -30,13 +30,13 @@ from datasium.filter import _coerce
 # Dtype choices offered across the panel.
 # ---------------------------------------------------------------------------
 DTYPE_CHOICES: list[tuple[str, str, pl.DataType]] = [
-    ("Int64 (integer)", "int", pl.Int64),
-    ("Float64 (decimal)", "float", pl.Float64),
-    ("String (text)", "str", pl.String),
-    ("Boolean (true/false)", "bool", pl.Boolean),
-    ("Date (YYYY-MM-DD)", "date", pl.Date),
-    ("Datetime", "datetime", pl.Datetime),
-    ("Time", "time", pl.Time),
+    ("Int64 (integer)", "int", pl.Int64()),
+    ("Float64 (decimal)", "float", pl.Float64()),
+    ("String (text)", "str", pl.String()),
+    ("Boolean (true/false)", "bool", pl.Boolean()),
+    ("Date (YYYY-MM-DD)", "date", pl.Date()),
+    ("Datetime", "datetime", pl.Datetime()),
+    ("Time", "time", pl.Time()),
 ]
 DTYPE_BY_KEY: dict[str, pl.DataType] = {k: dt for _lbl, k, dt in DTYPE_CHOICES}
 DTYPE_LABELS: dict[str, str] = {k: lbl for lbl, k, _dt in DTYPE_CHOICES}
