@@ -1,8 +1,9 @@
 """SQL query component for the active dataset.
 
-Renders a SQL input and runs the query against the *collected* DataFrame
-using :meth:`polars.DataFrame.sql`. The calling frame is registered under
-the table name ``self`` (the method default), so queries look like
+Renders a SQL input and runs the query against the active ``LazyFrame``
+using :meth:`polars.LazyFrame.sql`, returning a lazy result that the caller
+collects only when it is ready to display it. The calling frame is registered
+under the table name ``self`` (the method default), so queries look like
 ``SELECT * FROM self WHERE age > 20``.
 
 A run history is kept and rendered after the input UI so past queries stay
@@ -33,16 +34,17 @@ class QueryEntry:
         return self.error is None
 
 
-def run_sql(df: pl.DataFrame, query: str, *, table_name: str = "self") -> pl.DataFrame:
-    """Execute ``query`` against ``df`` via :meth:`polars.DataFrame.sql`.
+def run_sql(lf: pl.LazyFrame, query: str, *, table_name: str = "self") -> pl.LazyFrame:
+    """Execute ``query`` against ``lf`` via :meth:`polars.LazyFrame.sql`.
 
-    Pure (UI-free) so it can be unit-tested. Raises ``ValueError`` with a
-    user-facing message on empty input; Polars surfaces SQL parse / compute
-    errors as its own exceptions.
+    Returns a lazy result; the caller decides when to ``.collect()`` it for
+    display. Pure (UI-free) so it can be unit-tested. Raises ``ValueError``
+    with a user-facing message on empty input; Polars surfaces SQL parse /
+    compute errors as its own exceptions.
     """
     if query is None or not query.strip():
         raise ValueError("enter a SQL query")
-    return df.sql(query, table_name=table_name)
+    return lf.sql(query, table_name=table_name)
 
 
 class QueryPanel:

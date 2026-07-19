@@ -261,7 +261,6 @@ class PlotPanel:
         columns: list[tuple[str, pl.DataType]],
         on_plot: Callable[[], None],
     ) -> None:
-        self._on_plot = on_plot
         names = [n for n, _ in columns]
         opts = {n: n for n in names} or {_ODD: _ODD}
         numeric = [n for n, d in columns if _is_numeric(d)]
@@ -272,7 +271,7 @@ class PlotPanel:
                 self.type_select = ui.select(
                     options={k: lbl for lbl, k in PLOT_TYPES},
                     value="scatter", label="Plot type",
-                    on_change=lambda _e: self._refresh_and_plot(),
+                    on_change=lambda _e: self._refresh(),
                 ).props("dense outlined").classes("w-44")
                 self.scope_select = ui.select(
                     {
@@ -280,28 +279,23 @@ class PlotPanel:
                         "dataset": "Entire dataset (all rows)",
                     },
                     value="selection", label="Data scope",
-                    on_change=lambda _e: on_plot(),
                 ).props("dense outlined").classes("w-64")
                 self.x_select = ui.select(
                     options=opts, value=None, label="X column",
-                    on_change=lambda _e: on_plot(),
                 ).props("dense outlined").classes("w-40")
                 self.y_select = ui.select(
                     options=opts, value=None, label="Y column",
-                    on_change=lambda _e: on_plot(),
                 ).props("dense outlined").classes("w-40")
                 self.color_select = ui.select(
                     options=opts, value=None, label="Color / group by",
-                    clearable=True, on_change=lambda _e: on_plot(),
+                    clearable=True,
                 ).props("dense outlined").classes("w-40")
                 self.agg_select = ui.select(
                     options={k: lbl for lbl, k in AGG_STATS},
                     value="raw", label="Statistic (bar)",
-                    on_change=lambda _e: on_plot(),
                 ).props("dense outlined").classes("w-44")
                 self.bins_input = ui.number(
                     value=30, min=1, max=500, label="Bins (histogram)",
-                    on_change=lambda _e: on_plot(),
                 ).props("dense outlined").classes("w-28")
                 ui.button("Plot", icon="show_chart", on_click=lambda _=None: on_plot()) \
                     .props("unelevated color=primary dense")
@@ -314,10 +308,6 @@ class PlotPanel:
         pt = self.type_select.value
         self.agg_select.set_visibility(pt == "bar")
         self.bins_input.set_visibility(pt == "histogram")
-
-    def _refresh_and_plot(self) -> None:
-        self._refresh()
-        self._on_plot()
 
     # ---- read-only spec accessors ------------------------------------------
     @property

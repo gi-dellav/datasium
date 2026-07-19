@@ -258,7 +258,6 @@ class App:
             )
             self.remove_meta = ui.label("").classes("text-xs opacity-50")
             self.remove_preview_container = ui.column().classes("w-full")
-            self._run_remove_preview()
 
     def _run_remove_preview(self) -> None:
         if self.remove_preview_container is None or self.remove_panel is None:
@@ -521,7 +520,6 @@ class App:
             self.calculator = Calculator(
                 self.calc_panel, ds.columns, self._run_calculate,
             )
-            self._run_calculate()
 
     def _run_calculate(self) -> None:
         if self.calculator is None:
@@ -575,7 +573,6 @@ class App:
                         "statistic."
                     ).classes("text-xs opacity-50")
             self.plot_panel = PlotPanel(self.plot_root, ds.columns, self._run_plot)
-            self._run_plot()
 
     def _run_plot(self) -> None:
         if self.plot_panel is None:
@@ -742,8 +739,7 @@ class App:
             ui.notify("No active dataset", type="warning", position="top")
             return
         try:
-            df = ds.lazyframe.collect()
-            result = run_sql(df, query)
+            result = run_sql(ds.lazyframe, query).collect()
         except ValueError as err:
             self.query_history.append(QueryEntry(query=query, error=str(err)))
             ui.notify(str(err), type="warning", position="top")
@@ -782,7 +778,6 @@ class App:
 
     def _on_columns_change(self, value) -> None:
         self.selected_columns = list(value) if value else None
-        self._run_preview()
 
     # -------------------------------------------------------------- filter panel
     def _build_filter_panel(self, ds: Dataset) -> None:
@@ -796,7 +791,6 @@ class App:
         self.filter_builder = FilterBuilder(
             ds.columns, fb_container, combinator="all",
         )
-        self.filter_builder.on_change(self._run_preview)
 
     # -------------------------------------------------------------- preview panel
     def _build_preview_panel(self, ds: Dataset) -> None:
@@ -814,11 +808,9 @@ class App:
                     .props("unelevated color=primary dense")
         self.preview_meta = ui.label("").classes("text-xs opacity-50")
         self.preview_container = ui.column().classes("w-full")
-        self._run_preview()
 
     def _on_mode_change(self, value) -> None:
         self.preview_mode = value or "selected"
-        self._run_preview()
 
     def _run_preview(self) -> None:
         if self.preview_container is None:
@@ -869,11 +861,6 @@ class App:
             ui.table(columns=columns, rows=rows, row_key=df.columns[0]) \
                 .props("flat dense") \
                 .classes("w-full")
-
-        if self.calculator is not None:
-            self._run_calculate()
-        if self.plot_panel is not None:
-            self._run_plot()
 
     # ----------------------------------------------------------------- handlers
     def _on_upload(self, e: events.UploadEventArguments) -> None:
