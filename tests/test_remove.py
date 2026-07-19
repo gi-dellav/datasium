@@ -12,6 +12,7 @@ from datasium.remove import (
     apply_removal,
     remove_columns,
     remove_nulls,
+    remove_outliers,
     remove_rows_by_value,
 )
 
@@ -277,3 +278,76 @@ def test_registry_replace_unknown():
     reg = DatasetRegistry()
     with pytest.raises(KeyError):
         reg.replace("missing", pl.scan_csv("sample.csv"))
+
+
+# ---------------------------------------------------------------------------
+# remove_outliers
+# ---------------------------------------------------------------------------
+@pytest.fixture
+def outlier_lf() -> pl.LazyFrame:
+    return pl.DataFrame({"v": [1, 2, 3, 4, 5, 100]}).lazy()
+
+
+def test_outliers_iqr_removes_extreme(outlier_lf):
+    out = remove_outliers(outlier_lf, "v", method="iqr", threshold=1.5).collect()
+    assert 100 not in out["v"].to_list()
+    assert out.height < 6
+
+
+def test_outliers_iqr_keeps_mild():
+    lf = pl.DataFrame({"v": [10, 11, 12, 13, 14]}).lazy()
+    out = remove_outliers(lf, "v", method="iqr", threshold=1.5).collect()
+    assert out.height == 5
+
+
+def test_outliers_zscore_removes_extreme(outlier_lf):
+    out = remove_outliers(outlier_lf, "v", method="zscore", threshold=2.0).collect()
+    assert 100 not in out["v"].to_list()
+
+
+def test_outliers_zscore_keeps_all_when_uniform():
+    lf = pl.DataFrame({"v": [5, 5, 5, 5]}).lazy()
+    out = remove_outliers(lf, "v", method="zscore", threshold=1.0).collect()
+    assert out.height == 4
+
+
+def test_outliers_keeps_nulls():
+    lf = pl.DataFrame({"v": [1, 2, None, 3, 100]}).lazy()
+    out = remove_outliers(lf, "v", method="iqr", threshold=1.5).collect()
+    assert out["v"].null_count() == 1
+
+
+def test_outliers_rejects_non_numeric():
+    lf = pl.DataFrame({"s": ["a", "b"]}).lazy()
+    with pytest.raises(ValueError, match="not numeric"):
+        remove_outliers(lf, "s")
+
+
+def test_outliers_rejects_unknown_column():
+    lf = pl.DataFrame({"v": [1]}).lazy()
+    with pytest.raises(ValueError, match="not found"):
+        remove_outliers(lf, "missing")
+
+
+def test_outliers_rejects_bad_method():
+    lf = pl.DataFrame({"v": [1]}).lazy()
+    with pytest.raises(ValueError, match="unknown outlier method"):
+        remove_outliers(lf, "v", method="banana")
+
+
+def test_outliers_rejects_bad_threshold():
+    lf = pl.DataFrame({"v": [1]}).lazy()
+    with pytest.raises(ValueError, match="positive"):
+        remove_outliers(lf, "v", threshold=-1)
+
+
+def test_outliers_via_spec():
+    lf = pl.DataFrame({"v": [1, 2, 3, 4, 5, 100]}).lazy()
+    spec = RemovalSpec(
+        row_mode="outliers",
+        outlier_column="v",
+        outlier_method="iqr",
+        outlier_threshold=1.5,
+    )
+    out = apply_removal(lf, spec).collect()
+    assert 100 not in out["v"].to_list()

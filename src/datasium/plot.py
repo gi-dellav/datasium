@@ -26,10 +26,14 @@ from datasium.calculate import _is_numeric
 PLOT_TYPES: list[tuple[str, str]] = [
     ("Scatter", "scatter"),
     ("Line", "line"),
+    ("Area", "area"),
     ("Bar (aggregated)", "bar"),
+    ("Stacked bar", "stacked_bar"),
     ("Histogram", "histogram"),
     ("Box", "box"),
     ("Violin", "violin"),
+    ("Pie / donut", "pie"),
+    ("Heatmap", "heatmap"),
 ]
 
 # (label, key) for the aggregation-statistic select (used by the Bar plot).
@@ -57,6 +61,10 @@ class PlotSpec:
     color: str | None = None  # optional group / color-by column
     agg: str = "raw"  # statistic for the Bar plot
     nbins: int = 30  # bins for the Histogram plot
+    log_x: bool = False
+    log_y: bool = False
+    point_size: int = 6  # marker size for scatter
+    opacity: float = 1.0  # trace opacity 0..1
 
 
 # --------------------------------------------------------------------------- #
@@ -125,10 +133,20 @@ def _figure(
         "margin": {"l": 40, "r": 20, "t": 40, "b": 40},
         "legend": {"orientation": "h"},
     }
+    xaxis_cfg: dict = {}
+    yaxis_cfg: dict = {}
     if xaxis:
-        layout["xaxis"] = {"title": xaxis}
+        xaxis_cfg["title"] = xaxis
     if yaxis:
-        layout["yaxis"] = {"title": yaxis}
+        yaxis_cfg["title"] = yaxis
+    if spec.log_x:
+        xaxis_cfg["type"] = "log"
+    if spec.log_y:
+        yaxis_cfg["type"] = "log"
+    if xaxis_cfg:
+        layout["xaxis"] = xaxis_cfg
+    if yaxis_cfg:
+        layout["yaxis"] = yaxis_cfg
     if barmode:
         layout["barmode"] = barmode
     return {"data": traces, "layout": layout}
@@ -151,15 +169,37 @@ def _scatter_line(df: pl.DataFrame, spec: PlotSpec, pt: str) -> dict:
     _require(df, spec.y, "Y")
     traces = []
     for label, sub in _groups(df, spec.color):
-        traces.append(
-            {
-                "type": "scatter",
-                "mode": "markers" if pt == "scatter" else "lines",
-                "name": label or spec.y,
-                "x": sub[spec.x].to_numpy(),
-                "y": sub[spec.y].to_numpy(),
-            }
-        )
+        trace: dict = {
+            "type": "scatter",
+            "mode": "markers" if pt == "scatter" else "lines",
+            "name": label or spec.y,
+            "x": sub[spec.x].to_numpy(),
+            "y": sub[spec.y].to_numpy(),
+        }
+        if pt == "scatter":
+            trace["marker"] = {"size": spec.point_size}
+        if spec.opacity < 1.0:
+            trace["opacity"] = spec.opacity
+        traces.append(trace)
+    return _figure(traces, spec, xaxis=spec.x, yaxis=spec.y)
+
+
+def _area(df: pl.DataFrame, spec: PlotSpec) -> dict:
+    _require(df, spec.x, "X")
+    _require(df, spec.y, "Y")
+    traces = []
+    for label, sub in _groups(df, spec.color):
+        trace: dict = {
+            "type": "scatter",
+            "mode": "lines",
+            "name": label or spec.y,
+            "x": sub[spec.x].to_numpy(),
+            "y": sub[spec.y].to_numpy(),
+            "fill": "tozeroy",
+        }
+        if spec.opacity < 1.0:
+            trace["opacity"] = spec.opacity
+        traces.append(trace)
     return _figure(traces, spec, xaxis=spec.x, yaxis=spec.y)
 
 
@@ -244,6 +284,65 @@ def _box_violin(df: pl.DataFrame, spec: PlotSpec, kind: str) -> dict:
     return _figure(traces, spec, yaxis=spec.y)
 
 
+def _stacked_bar(df: pl.DataFrame, spec: PlotSpec) -> dict:
+    _require(df, spec.x, "X")
+    _require(df, spec.y, "Y")
+    traces = []
+    for label, sub in _groups(df, spec.color):
+        traces.append(
+            {
+                "type": "bar",
+                "name": label or spec.y,
+                "x": sub[spec.x].to_numpy(),
+                "y": sub[spec.y].to_numpy(),
+            }
+        )
+    return _figure(traces, spec, xaxis=spec.x, yaxis=spec.y, barmode="stack")
+
+
+def _pie(df: pl.DataFrame, spec: PlotSpec) -> dict:
+    _require(df, spec.x, "Label")
+    _require(df, spec.y, "Value")
+    labels = df[spec.x].to_list()
+    values = df[spec.y].to_list()
+    trace: dict = {
+        "type": "pie",
+        "labels": labels,
+        "values": values,
+        "hole": 0.4,
+    }
+    layout: dict = {
+        "title": {"text": _title(spec)},
+        "margin": {"l": 40, "r": 20, "t": 40, "b": 40},
+    }
+    return {"data": [trace], "layout": layout}
+
+
+def _heatmap(df: pl.DataFrame, spec: PlotSpec) -> dict:
+    """Correlation heatmap of all numeric columns (ignores X/Y selectors)."""
+    numeric_cols = [c for c in df.columns if _is_numeric(df.schema[c])]
+    if len(numeric_cols) < 2:
+        raise ValueError("heatmap needs at least 2 numeric columns")
+    import numpy as np
+
+    data = df.select(numeric_cols).to_numpy()
+    corr = np.corrcoef(data, rowvar=False)
+    trace: dict = {
+        "type": "heatmap",
+        "x": numeric_cols,
+        "y": numeric_cols,
+        "z": corr.tolist(),
+        "colorscale": "RdBu",
+        "zmin": -1,
+        "zmax": 1,
+    }
+    layout: dict = {
+        "title": {"text": "Correlation matrix"},
+        "margin": {"l": 80, "r": 20, "t": 40, "b": 80},
+    }
+    return {"data": [trace], "layout": layout}
+
+
 def build_figure(df: pl.DataFrame, spec: PlotSpec) -> dict:
     """Build the declarative Plotly figure ``dict`` for ``df`` per ``spec``.
 
@@ -255,14 +354,22 @@ def build_figure(df: pl.DataFrame, spec: PlotSpec) -> dict:
     pt = spec.plot_type
     if pt in ("scatter", "line"):
         return _scatter_line(df, spec, pt)
+    if pt == "area":
+        return _area(df, spec)
     if pt == "bar":
         return _bar(df, spec)
+    if pt == "stacked_bar":
+        return _stacked_bar(df, spec)
     if pt == "histogram":
         return _histogram(df, spec)
     if pt == "box":
         return _box_violin(df, spec, "box")
     if pt == "violin":
         return _box_violin(df, spec, "violin")
+    if pt == "pie":
+        return _pie(df, spec)
+    if pt == "heatmap":
+        return _heatmap(df, spec)
     raise ValueError(f"unknown plot type {pt!r}")
 
 
@@ -354,6 +461,29 @@ class PlotPanel:
                     .props("dense outlined")
                     .classes("w-28")
                 )
+                self.point_size_input = (
+                    ui.number(
+                        value=6,
+                        min=1,
+                        max=30,
+                        label="Point size",
+                    )
+                    .props("dense outlined")
+                    .classes("w-24")
+                )
+                self.opacity_input = (
+                    ui.number(
+                        value=1.0,
+                        min=0.1,
+                        max=1.0,
+                        step=0.1,
+                        label="Opacity",
+                    )
+                    .props("dense outlined")
+                    .classes("w-24")
+                )
+                self.log_x_switch = ui.switch("Log X").props("dense")
+                self.log_y_switch = ui.switch("Log Y").props("dense")
                 ui.button(
                     "Plot", icon="show_chart", on_click=lambda _=None: on_plot()
                 ).props("unelevated color=primary dense")
@@ -366,6 +496,10 @@ class PlotPanel:
         pt = self.type_select.value
         self.agg_select.set_visibility(pt == "bar")
         self.bins_input.set_visibility(pt == "histogram")
+        self.point_size_input.set_visibility(pt == "scatter")
+        needs_xy = pt not in ("heatmap",)
+        self.x_select.set_visibility(needs_xy)
+        self.y_select.set_visibility(needs_xy)
 
     # ---- read-only spec accessors ------------------------------------------
     @property
@@ -409,6 +543,10 @@ class PlotPanel:
             color=self.color,
             agg=self.agg,
             nbins=self.nbins,
+            log_x=bool(self.log_x_switch.value),
+            log_y=bool(self.log_y_switch.value),
+            point_size=int(self.point_size_input.value or 6),
+            opacity=float(self.opacity_input.value or 1.0),
         )
 
     # ---- output slots -------------------------------------------------------

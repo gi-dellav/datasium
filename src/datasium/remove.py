@@ -1,13 +1,14 @@
 """Row / column removal component for the active dataset.
 
-Renders a column multi-select plus a row-removal mode toggle with three
-strategies (remove rows matching a value, remove null rows, remove the rows
-given by the active Select-tab selection) and turns the current state into a
-new Polars ``LazyFrame`` via :func:`apply_removal`.
+Renders a column multi-select plus a row-removal mode toggle with strategies
+(remove rows matching a value, remove null rows, remove the rows given by the
+active Select-tab selection, remove duplicates, remove outliers) and turns the
+current state into a new Polars ``LazyFrame`` via :func:`apply_removal`.
 
 The pure helpers (:func:`remove_columns`, :func:`remove_rows_by_value`,
-:func:`remove_nulls`, :func:`apply_removal`) and the :class:`RemovalSpec`
-dataclass are UI-free so they can be unit-tested.
+:func:`remove_nulls`, :func:`remove_duplicates`, :func:`remove_outliers`,
+:func:`apply_removal`) and the :class:`RemovalSpec` dataclass are UI-free so
+they can be unit-tested.
 """
 
 from __future__ import annotations
@@ -19,9 +20,10 @@ import polars as pl
 
 from nicegui import ui
 
+from datasium.calculate import _is_numeric
 from datasium.filter import _OPERATORS, _NULLARY, _dtype_group, build_term
 
-RowMode = Literal["none", "values", "nulls", "selection", "duplicates"]
+RowMode = Literal["none", "values", "nulls", "selection", "duplicates", "outliers"]
 
 
 # ---------------------------------------------------------------------------
@@ -40,6 +42,9 @@ class RemovalSpec:
     dup_subset: list[str] | None = None  # None => all columns
     dup_keep: str = "first"  # first / last / none
     selection_expr: pl.Expr | None = None
+    outlier_column: str | None = None
+    outlier_method: str = "iqr"  # "iqr" or "zscore"
+    outlier_threshold: float = 1.5  # IQR multiplier or z-score cutoff
 
 
 def _missing_columns(lf: pl.LazyFrame, cols: list[str]) -> list[str]:
@@ -106,6 +111,54 @@ def remove_duplicates(
     return lf.unique(subset=subset or None, keep=keep)
 
 
+def remove_outliers(
+    lf: pl.LazyFrame,
+    column: str,
+    method: str = "iqr",
+    threshold: float = 1.5,
+) -> pl.LazyFrame:
+    """Remove rows where *column* is an outlier.  Null rows are kept.
+
+    Methods
+    -------
+    * ``"iqr"`` – remove rows where value < Q1 − threshold×IQR or
+      value > Q3 + threshold×IQR (default threshold 1.5).
+    * ``"zscore"`` – remove rows where |z-score| > threshold
+      (default threshold 3.0).
+
+    Raises ``ValueError`` on bad input.
+    """
+    if not column:
+        raise ValueError("select a column for outlier detection")
+    schema = dict(lf.collect_schema().items())
+    if column not in schema:
+        raise ValueError(f"column {column!r} not found")
+    if not _is_numeric(schema[column]):
+        raise ValueError(f"column {column!r} is not numeric")
+    if threshold <= 0:
+        raise ValueError("threshold must be positive")
+
+    col = pl.col(column)
+
+    if method == "iqr":
+        q1 = col.quantile(0.25)
+        q3 = col.quantile(0.75)
+        iqr = q3 - q1
+        lower = q1 - threshold * iqr
+        upper = q3 + threshold * iqr
+        keep = col.is_null() | ((col >= lower) & (col <= upper))
+        return lf.filter(keep)
+
+    if method == "zscore":
+        mean = col.mean()
+        std = col.std()
+        z = (col - mean) / std
+        keep = col.is_null() | (std == 0) | (z.abs() <= threshold)
+        return lf.filter(keep)
+
+    raise ValueError(f"unknown outlier method {method!r}")
+
+
 def apply_removal(lf: pl.LazyFrame, spec: RemovalSpec) -> pl.LazyFrame:
     """Apply ``spec`` to ``lf`` and return the resulting LazyFrame.
 
@@ -124,6 +177,13 @@ def apply_removal(lf: pl.LazyFrame, spec: RemovalSpec) -> pl.LazyFrame:
         lf = lf.filter(~spec.selection_expr)
     elif mode == "duplicates":
         lf = remove_duplicates(lf, spec.dup_subset, spec.dup_keep)
+    elif mode == "outliers":
+        lf = remove_outliers(
+            lf,
+            spec.outlier_column or "",
+            spec.outlier_method,
+            spec.outlier_threshold,
+        )
     elif mode == "none":
         pass
     else:
@@ -195,6 +255,7 @@ class RemovePanel:
                     "nulls": "Null values",
                     "selection": "Given selection",
                     "duplicates": "Duplicate values",
+                    "outliers": "Outliers",
                 },
                 value="none",
                 on_change=lambda _e: self._refresh_mode(),
@@ -235,6 +296,8 @@ class RemovePanel:
                 ).classes("text-sm opacity-50")
             elif mode == "duplicates":
                 self._build_duplicates_inputs()
+            elif mode == "outliers":
+                self._build_outliers_inputs()
 
     def _build_duplicates_inputs(self) -> None:
         ui.label(
@@ -345,6 +408,63 @@ class RemovePanel:
         )
         self.null_subset.set_visibility(False)
 
+    def _build_outliers_inputs(self) -> None:
+        numeric = [n for n, d in self._columns if _is_numeric(d)]
+        ui.label(
+            "Remove rows where a numeric column is an outlier. "
+            "Null rows are kept."
+        ).classes("text-xs opacity-50")
+        with ui.row().classes("items-center gap-2 w-full"):
+            self.outlier_col = (
+                ui.select(
+                    options={n: n for n in numeric} or {"—": "—"},
+                    value=numeric[0] if numeric else None,
+                    label="Column",
+                )
+                .props("dense outlined")
+                .classes("w-40")
+            )
+            self.outlier_method = (
+                ui.select(
+                    {
+                        "iqr": "IQR (interquartile range)",
+                        "zscore": "Z-score",
+                    },
+                    value="iqr",
+                    label="Method",
+                    on_change=lambda _e: self._refresh_outlier_hint(),
+                )
+                .props("dense outlined")
+                .classes("w-56")
+            )
+            self.outlier_threshold = (
+                ui.number(
+                    value=1.5,
+                    min=0.1,
+                    step=0.1,
+                    label="Threshold / multiplier",
+                )
+                .props("dense outlined")
+                .classes("w-40")
+            )
+        self.outlier_hint = ui.label("").classes("text-xs opacity-50")
+        self._refresh_outlier_hint()
+
+    def _refresh_outlier_hint(self) -> None:
+        if not hasattr(self, "outlier_hint"):
+            return
+        method = self.outlier_method.value if hasattr(self, "outlier_method") else "iqr"
+        if method == "iqr":
+            self.outlier_hint.set_text(
+                "Removes rows below Q1 − k×IQR or above Q3 + k×IQR. "
+                "Typical k: 1.5 (mild), 3.0 (extreme)."
+            )
+        else:
+            self.outlier_hint.set_text(
+                "Removes rows whose |z-score| exceeds the threshold. "
+                "Typical: 3.0."
+            )
+
     # ---- public ---------------------------------------------------------
     @property
     def spec(self) -> RemovalSpec:
@@ -379,6 +499,14 @@ class RemovePanel:
         if mode == "selection":
             selection_expr = self._on_selection_expr()  # provided by App
 
+        outlier_column = None
+        outlier_method = "iqr"
+        outlier_threshold = 1.5
+        if mode == "outliers" and hasattr(self, "outlier_col"):
+            outlier_column = self.outlier_col.value
+            outlier_method = self.outlier_method.value or "iqr"
+            outlier_threshold = float(self.outlier_threshold.value or 1.5)
+
         return RemovalSpec(
             row_mode=mode,  # type: ignore[arg-type]
             columns=columns,
@@ -389,6 +517,9 @@ class RemovePanel:
             dup_subset=dup_subset,
             dup_keep=dup_keep,
             selection_expr=selection_expr,
+            outlier_column=outlier_column,
+            outlier_method=outlier_method,
+            outlier_threshold=outlier_threshold,
         )
 
     def set_selection_expr_provider(self, fn: Callable[[], pl.Expr | None]) -> None:

@@ -38,8 +38,12 @@ from datasium.transform import (
     TransformPanel,
     add_computed_column,
     group_by_agg,
+    join_frames,
+    one_hot_encode,
+    pivot_frame,
     rename_column,
     sort_frame,
+    unpivot_frame,
 )
 from datasium.write import WritePanel, save_frame, apply_selection
 
@@ -77,6 +81,8 @@ class App:
         self.write_panel: WritePanel | None = None
         self.plot_panel: PlotPanel | None = None
         self.transform_panel: TransformPanel | None = None
+        self.preview_limit_mode = "all"  # "all" | "first" | "random"
+        self.preview_limit_n = 100
 
     # ------------------------------------------------------------------ build
     def build(self) -> None:
@@ -425,6 +431,13 @@ class App:
                 on_rename=self._on_transform_rename,
                 on_computed=self._on_transform_computed,
                 on_group_by=self._on_transform_group_by,
+                on_one_hot=self._on_transform_one_hot,
+                on_pivot=self._on_transform_pivot,
+                on_unpivot=self._on_transform_unpivot,
+                on_join=self._on_transform_join,
+                dataset_names=[
+                    n for n in self.registry.names() if n != self.active_name
+                ],
             )
 
     def _on_transform_sort(self, columns: list[str], descending: list[bool]) -> None:
@@ -515,6 +528,81 @@ class App:
         ar, ac = df.shape
         ui.notify(
             f"Group-by → new dataset {unique!r} · {ar:,} row(s) × {ac} column(s)",
+            type="positive",
+            position="top",
+        )
+
+    def _on_transform_one_hot(self, column: str) -> None:
+        ds = self.registry.get(self.active_name) if self.active_name else None
+        if ds is None:
+            ui.notify("No active dataset", type="warning", position="top")
+            return
+        try:
+            new_lf = one_hot_encode(ds.lazyframe, column)
+        except ValueError as err:
+            ui.notify(str(err), type="warning", position="top")
+            return
+        self._apply_transform(new_lf, f"One-hot encoded {column!r}")
+
+    def _on_transform_pivot(
+        self, index: list[str], columns: str, values: str, agg: str
+    ) -> None:
+        ds = self.registry.get(self.active_name) if self.active_name else None
+        if ds is None:
+            ui.notify("No active dataset", type="warning", position="top")
+            return
+        try:
+            new_lf = pivot_frame(ds.lazyframe, index, columns, values, agg)
+        except ValueError as err:
+            ui.notify(str(err), type="warning", position="top")
+            return
+        self._apply_transform(new_lf, "Pivoted")
+
+    def _on_transform_unpivot(
+        self, id_vars: list[str], value_vars: list[str], var_name: str, val_name: str
+    ) -> None:
+        ds = self.registry.get(self.active_name) if self.active_name else None
+        if ds is None:
+            ui.notify("No active dataset", type="warning", position="top")
+            return
+        try:
+            new_lf = unpivot_frame(
+                ds.lazyframe, id_vars, value_vars or None, var_name, val_name
+            )
+        except ValueError as err:
+            ui.notify(str(err), type="warning", position="top")
+            return
+        self._apply_transform(new_lf, "Unpivoted")
+
+    def _on_transform_join(
+        self, other_name: str, left_on: list[str], right_on: list[str], how: str
+    ) -> None:
+        ds = self.registry.get(self.active_name) if self.active_name else None
+        other = self.registry.get(other_name)
+        if ds is None or other is None:
+            ui.notify("Select both datasets", type="warning", position="top")
+            return
+        try:
+            new_lf = join_frames(ds.lazyframe, other.lazyframe, left_on, right_on, how)
+            df = new_lf.collect()
+        except ValueError as err:
+            ui.notify(str(err), type="warning", position="top")
+            return
+        except Exception as err:
+            ui.notify(f"Could not join: {err}", type="negative", position="top")
+            return
+        base = self.active_name or "dataset"
+        label = f"{base}_joined_{other_name}"
+        unique = self.registry._unique(label)
+        new_ds = Dataset(
+            name=unique, source=f"join({base}, {other_name})", lazyframe=df.lazy()
+        )
+        self.registry._items[unique] = new_ds
+        self.active_name = unique
+        self._refresh_all_tabs()
+        ar, ac = df.shape
+        ui.notify(
+            f"Join → new dataset {unique!r} · {ar:,} row(s) × {ac} column(s)",
             type="positive",
             position="top",
         )
@@ -1052,11 +1140,36 @@ class App:
                     icon="play_arrow",
                     on_click=lambda _=None: self._run_preview(),
                 ).props("unelevated color=primary dense")
+        with ui.row().classes("items-center gap-2 mt-1"):
+            ui.label("Row limit:").classes("text-sm opacity-70")
+            self.limit_toggle = ui.toggle(
+                {
+                    "all": "All rows",
+                    "first": "First N",
+                    "random": "Random N",
+                },
+                value=self.preview_limit_mode,
+                on_change=lambda e: self._on_limit_change(e.value),
+            ).props("dense")
+            self.limit_n = (
+                ui.number(
+                    value=self.preview_limit_n,
+                    min=1,
+                    max=100_000,
+                    label="N",
+                )
+                .props("dense outlined")
+                .classes("w-24")
+            )
         self.preview_meta = ui.label("").classes("text-xs opacity-50")
         self.preview_container = ui.column().classes("w-full")
 
     def _on_mode_change(self, value) -> None:
         self.preview_mode = value or "selected"
+
+    def _on_limit_change(self, value) -> None:
+        self.preview_limit_mode = value or "all"
+        self.limit_n.set_visibility(value != "all")
 
     def _run_preview(self) -> None:
         if self.preview_container is None:
@@ -1073,6 +1186,11 @@ class App:
                 lf = lf.filter(expr)
             if self.preview_mode == "selected" and self.selected_columns:
                 lf = lf.select(self.selected_columns)
+            n = int(self.limit_n.value) if hasattr(self, "limit_n") and self.limit_n.value else 100
+            if self.preview_limit_mode == "first":
+                lf = lf.head(n)
+            elif self.preview_limit_mode == "random":
+                lf = lf.sample(n=n, seed=42)
             df = lf.collect()
         except ValueError as err:
             ui.notify(f"Filter error: {err}", type="warning", position="top")
@@ -1084,6 +1202,7 @@ class App:
             return
 
         n_rows, n_cols = df.shape
+        total_rows = ds.shape[0]
         col_desc = (
             f"{n_cols} column{'s' if n_cols != 1 else ''}"
             if self.preview_mode == "selected" and self.selected_columns
@@ -1094,7 +1213,10 @@ class App:
             if (self.filter_builder and self.filter_builder.rows)
             else ""
         )
-        self.preview_meta.set_text(f"{n_rows:,} row(s) · {col_desc}{filt}")
+        limit_note = ""
+        if self.preview_limit_mode != "all" and n_rows < total_rows:
+            limit_note = f" (showing {self.preview_limit_mode} {n_rows:,} of {total_rows:,})"
+        self.preview_meta.set_text(f"{n_rows:,} row(s) · {col_desc}{filt}{limit_note}")
 
         self.preview_container.clear()
         if df.width == 0:
@@ -1118,10 +1240,10 @@ class App:
             ).classes("w-full")
 
     # ----------------------------------------------------------------- handlers
-    def _on_upload(self, e: events.UploadEventArguments) -> None:
+    async def _on_upload(self, e: events.UploadEventArguments) -> None:
         try:
-            raw = e.content.read()
-            ds = self.registry.load(e.name, raw)
+            raw = await e.file.read()
+            ds = self.registry.load(e.file.name, raw)
             self.active_name = ds.name
             self._refresh_all_tabs()
             self.tabs.set_value("Select")

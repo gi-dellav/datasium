@@ -8,8 +8,12 @@ import pytest
 from datasium.transform import (
     add_computed_column,
     group_by_agg,
+    join_frames,
+    one_hot_encode,
+    pivot_frame,
     rename_column,
     sort_frame,
+    unpivot_frame,
 )
 
 
@@ -606,3 +610,206 @@ def test_group_by_unknown_agg(lf):
 def test_group_by_agg_col_not_found(lf):
     with pytest.raises(ValueError, match="not found"):
         group_by_agg(lf, ["city"], "bogus", "mean", "x")
+
+
+# ---------------------------------------------------------------------------
+# datetime extraction
+# ---------------------------------------------------------------------------
+@pytest.fixture
+def dt_lf() -> pl.LazyFrame:
+    return pl.DataFrame(
+        {"ts": [datetime(2024, 3, 15, 10, 30), datetime(2025, 12, 25, 23, 59)]}
+    ).lazy()
+
+
+from datetime import datetime
+
+
+def test_dt_year(dt_lf):
+    out = add_computed_column(dt_lf, "yr", "datetime", "dt_year", col_a="ts").collect()
+    assert out["yr"].to_list() == [2024, 2025]
+
+
+def test_dt_month(dt_lf):
+    out = add_computed_column(dt_lf, "mo", "datetime", "dt_month", col_a="ts").collect()
+    assert out["mo"].to_list() == [3, 12]
+
+
+def test_dt_hour(dt_lf):
+    out = add_computed_column(dt_lf, "h", "datetime", "dt_hour", col_a="ts").collect()
+    assert out["h"].to_list() == [10, 23]
+
+
+def test_dt_quarter(dt_lf):
+    out = add_computed_column(dt_lf, "q", "datetime", "dt_quarter", col_a="ts").collect()
+    assert out["q"].to_list() == [1, 4]
+
+
+def test_dt_rejects_non_temporal(lf):
+    with pytest.raises(ValueError, match="not a date/time"):
+        add_computed_column(lf, "x", "datetime", "dt_year", col_a="age")
+
+
+# ---------------------------------------------------------------------------
+# window functions
+# ---------------------------------------------------------------------------
+def test_lag(lf):
+    out = add_computed_column(
+        lf, "prev", "window", "lag", col_a="age", scalar="1"
+    ).collect()
+    assert out["prev"][0] is None
+    assert out["prev"][1] == 30
+
+
+def test_lead(lf):
+    out = add_computed_column(
+        lf, "next", "window", "lead", col_a="age", scalar="1"
+    ).collect()
+    assert out["next"][-1] is None
+    assert out["next"][0] == 12
+
+
+def test_diff(lf):
+    out = add_computed_column(
+        lf, "d", "window", "diff", col_a="age", scalar="1"
+    ).collect()
+    assert out["d"][0] is None
+    assert out["d"][1] == 12 - 30
+
+
+def test_rolling_mean(lf):
+    out = add_computed_column(
+        lf, "rm", "window", "rolling_mean", col_a="age", scalar="3"
+    ).collect()
+    # first 2 rows have incomplete windows → null
+    assert out["rm"][0] is None
+    assert out["rm"][1] is None
+    assert out["rm"][2] == (30 + 12 + 40) / 3
+
+
+def test_rolling_sum(lf):
+    out = add_computed_column(
+        lf, "rs", "window", "rolling_sum", col_a="age", scalar="2"
+    ).collect()
+    assert out["rs"][1] == 30 + 12
+
+
+def test_window_rejects_non_numeric(lf):
+    with pytest.raises(ValueError, match="not numeric"):
+        add_computed_column(lf, "x", "window", "lag", col_a="name")
+
+
+# ---------------------------------------------------------------------------
+# binning
+# ---------------------------------------------------------------------------
+def test_bin_freq(lf):
+    out = add_computed_column(
+        lf, "bins", "binning", "bin_freq", col_a="age", scalar="3"
+    ).collect()
+    assert out["bins"].dtype == pl.Categorical
+    assert out.height == 8
+
+
+def test_bin_width(lf):
+    out = add_computed_column(
+        lf, "bins", "binning", "bin_width", col_a="age", scalar="3"
+    ).collect()
+    assert out["bins"].dtype == pl.Enum
+    assert out.height == 8
+
+
+def test_bin_rejects_few_bins(lf):
+    with pytest.raises(ValueError, match="≥ 2"):
+        add_computed_column(lf, "b", "binning", "bin_freq", col_a="age", scalar="1")
+
+
+# ---------------------------------------------------------------------------
+# one_hot_encode
+# ---------------------------------------------------------------------------
+def test_one_hot_basic(lf):
+    out = one_hot_encode(lf, "city").collect()
+    assert "city_London" in out.columns
+    assert "city_Paris" in out.columns
+    assert "city_Rome" in out.columns
+    assert out["city_London"].dtype == pl.Boolean
+
+
+def test_one_hot_unknown_column(lf):
+    with pytest.raises(ValueError, match="not found"):
+        one_hot_encode(lf, "bogus")
+
+
+# ---------------------------------------------------------------------------
+# pivot_frame
+# ---------------------------------------------------------------------------
+def test_pivot_basic():
+    lf = pl.DataFrame(
+        {"idx": ["a", "a", "b", "b"], "col": ["x", "y", "x", "y"], "val": [1, 2, 3, 4]}
+    ).lazy()
+    out = pivot_frame(lf, ["idx"], "col", "val", "first").collect()
+    assert "x" in out.columns
+    assert "y" in out.columns
+    assert out.height == 2
+
+
+def test_pivot_no_index():
+    lf = pl.DataFrame({"a": [1], "b": [2]}).lazy()
+    with pytest.raises(ValueError, match="at least one index"):
+        pivot_frame(lf, [], "a", "b")
+
+
+# ---------------------------------------------------------------------------
+# unpivot_frame
+# ---------------------------------------------------------------------------
+def test_unpivot_basic():
+    lf = pl.DataFrame({"id": [1, 2], "x": [10, 20], "y": [30, 40]}).lazy()
+    out = unpivot_frame(lf, ["id"], ["x", "y"]).collect()
+    assert out.height == 4
+    assert "variable" in out.columns
+    assert "value" in out.columns
+
+
+def test_unpivot_custom_names():
+    lf = pl.DataFrame({"id": [1], "a": [10]}).lazy()
+    out = unpivot_frame(lf, ["id"], ["a"], "metric", "amount").collect()
+    assert "metric" in out.columns
+    assert "amount" in out.columns
+
+
+# ---------------------------------------------------------------------------
+# join_frames
+# ---------------------------------------------------------------------------
+def test_join_inner():
+    left = pl.DataFrame({"k": [1, 2, 3], "v": ["a", "b", "c"]}).lazy()
+    right = pl.DataFrame({"k": [2, 3, 4], "w": [10, 20, 30]}).lazy()
+    out = join_frames(left, right, ["k"], ["k"], "inner").collect()
+    assert out.height == 2
+    assert "w" in out.columns
+
+
+def test_join_left():
+    left = pl.DataFrame({"k": [1, 2], "v": ["a", "b"]}).lazy()
+    right = pl.DataFrame({"k": [2, 3], "w": [10, 20]}).lazy()
+    out = join_frames(left, right, ["k"], ["k"], "left").collect()
+    assert out.height == 2
+
+
+def test_join_cross():
+    left = pl.DataFrame({"a": [1, 2]}).lazy()
+    right = pl.DataFrame({"b": [3, 4, 5]}).lazy()
+    out = join_frames(left, right, [], [], "cross").collect()
+    assert out.height == 6
+
+
+def test_join_bad_how():
+    left = pl.DataFrame({"k": [1]}).lazy()
+    right = pl.DataFrame({"k": [1]}).lazy()
+    with pytest.raises(ValueError, match="unknown join type"):
+        join_frames(left, right, ["k"], ["k"], "banana")
+
+
+def test_join_missing_left_col():
+    left = pl.DataFrame({"k": [1]}).lazy()
+    right = pl.DataFrame({"k": [1]}).lazy()
+    with pytest.raises(ValueError, match="left column"):
+        join_frames(left, right, ["missing"], ["k"])

@@ -28,6 +28,10 @@ from nicegui import ui
 from datasium.calculate import _is_numeric
 
 
+def _is_temporal(dtype: pl.DataType) -> bool:
+    return dtype.base_type() in (pl.Date, pl.Datetime, pl.Time)
+
+
 # ---------------------------------------------------------------------------
 # Operator catalogues
 # ---------------------------------------------------------------------------
@@ -80,6 +84,32 @@ COND_OPS: list[tuple[str, str]] = [
     ("when col is null then A else B", "cond_null"),
 ]
 
+DATETIME_OPS: list[tuple[str, str]] = [
+    ("year", "dt_year"),
+    ("month", "dt_month"),
+    ("day", "dt_day"),
+    ("day of week (1=Mon)", "dt_weekday"),
+    ("hour", "dt_hour"),
+    ("minute", "dt_minute"),
+    ("quarter", "dt_quarter"),
+    ("week of year", "dt_week"),
+]
+
+WINDOW_OPS: list[tuple[str, str]] = [
+    ("lag (shift down)", "lag"),
+    ("lead (shift up)", "lead"),
+    ("diff (difference)", "diff"),
+    ("rolling mean", "rolling_mean"),
+    ("rolling sum", "rolling_sum"),
+    ("rolling min", "rolling_min"),
+    ("rolling max", "rolling_max"),
+]
+
+BINNING_OPS: list[tuple[str, str]] = [
+    ("equal-width bins", "bin_width"),
+    ("equal-frequency bins", "bin_freq"),
+]
+
 CATEGORY_OPS: dict[str, list[tuple[str, str]]] = {
     "arithmetic": ARITH_OPS,
     "aggregation": AGG_OPS,
@@ -87,6 +117,9 @@ CATEGORY_OPS: dict[str, list[tuple[str, str]]] = {
     "string": STR_OPS,
     "rank / index": RANK_OPS,
     "conditional": COND_OPS,
+    "datetime": DATETIME_OPS,
+    "window": WINDOW_OPS,
+    "binning": BINNING_OPS,
 }
 
 CATEGORY_LABELS: dict[str, str] = {
@@ -96,6 +129,9 @@ CATEGORY_LABELS: dict[str, str] = {
     "string": "String transform",
     "rank / index": "Rank / row index",
     "conditional": "Conditional (when / then / otherwise)",
+    "datetime": "Datetime extraction (year, month, day, …)",
+    "window": "Window (lag, lead, diff, rolling …)",
+    "binning": "Binning (discretise a numeric column)",
 }
 
 
@@ -311,6 +347,74 @@ def add_computed_column(
                 raise ValueError(f"unknown conditional op {op!r}")
             expr = pl.when(cond).then(pl.lit(then_v)).otherwise(pl.lit(else_v))
 
+    # ---- datetime extraction ----
+    elif category == "datetime":
+        if not col_a:
+            raise ValueError("select a source column")
+        a = _col(col_a)
+        if not _is_temporal(schema[col_a]):
+            raise ValueError(f"column {col_a!r} is not a date/time column")
+        dt_map = {
+            "dt_year": lambda: a.dt.year(),
+            "dt_month": lambda: a.dt.month(),
+            "dt_day": lambda: a.dt.day(),
+            "dt_weekday": lambda: a.dt.weekday(),
+            "dt_hour": lambda: a.dt.hour(),
+            "dt_minute": lambda: a.dt.minute(),
+            "dt_quarter": lambda: a.dt.quarter(),
+            "dt_week": lambda: a.dt.week(),
+        }
+        if op not in dt_map:
+            raise ValueError(f"unknown datetime op {op!r}")
+        expr = dt_map[op]()
+
+    # ---- window functions ----
+    elif category == "window":
+        if not col_a:
+            raise ValueError("select a source column")
+        a = _num(col_a)
+        n = int(_scalar_f64(scalar)) if scalar and scalar.strip() else 1
+        if op == "lag":
+            expr = a.shift(n)
+        elif op == "lead":
+            expr = a.shift(-n)
+        elif op == "diff":
+            expr = a.diff(n)
+        elif op == "rolling_mean":
+            expr = a.rolling_mean(max(1, n))
+        elif op == "rolling_sum":
+            expr = a.rolling_sum(max(1, n))
+        elif op == "rolling_min":
+            expr = a.rolling_min(max(1, n))
+        elif op == "rolling_max":
+            expr = a.rolling_max(max(1, n))
+        else:
+            raise ValueError(f"unknown window op {op!r}")
+
+    # ---- binning ----
+    elif category == "binning":
+        if not col_a:
+            raise ValueError("select a source column")
+        a = _num(col_a)
+        n_bins = int(_scalar_f64(scalar)) if scalar and scalar.strip() else 5
+        if n_bins < 2:
+            raise ValueError("number of bins must be ≥ 2")
+        if op == "bin_freq":
+            quantiles = [i / n_bins for i in range(1, n_bins)]
+            expr = a.qcut(quantiles, left_closed=True, allow_duplicates=True)
+        elif op == "bin_width":
+            # cut() needs literal breaks — collect min/max (single column, cheap)
+            stats = lf.select(a.min().alias("lo"), a.max().alias("hi")).collect()
+            lo = stats["lo"][0]
+            hi = stats["hi"][0]
+            if lo == hi:
+                raise ValueError(f"column {col_a!r} has no range (min == max)")
+            width = (hi - lo) / n_bins
+            breaks = [lo + width * i for i in range(1, n_bins)]
+            expr = a.cut(breaks, left_closed=True)
+        else:
+            raise ValueError(f"unknown binning op {op!r}")
+
     else:
         raise ValueError(f"unknown category {category!r}")
 
@@ -394,11 +498,125 @@ def group_by_agg(
     return lf.group_by(group_cols).agg(agg_expr)
 
 
+def one_hot_encode(lf: pl.LazyFrame, column: str) -> pl.LazyFrame:
+    """One-hot encode *column*: one boolean column per unique value.
+
+    New columns are named ``{column}_{value}``.  Raises ``ValueError`` on
+    unknown columns.
+    """
+    names = lf.collect_schema().names()
+    if column not in names:
+        raise ValueError(f"column {column!r} not found")
+    uniques = lf.select(pl.col(column).unique()).collect()[column].to_list()
+    exprs = [
+        pl.col(column).eq(v).alias(f"{column}_{v}")
+        for v in uniques
+        if v is not None
+    ]
+    return lf.with_columns(exprs)
+
+
+def pivot_frame(
+    lf: pl.LazyFrame,
+    index: list[str],
+    columns: str,
+    values: str,
+    agg: str = "first",
+) -> pl.LazyFrame:
+    """Pivot *lf* so unique values of *columns* become new column headers.
+
+    *index* columns stay as row identifiers; *values* supplies the cell
+    values, aggregated with *agg* when there are duplicates.
+    """
+    names = set(lf.collect_schema().names())
+    for c in [*index, columns, values]:
+        if c not in names:
+            raise ValueError(f"column {c!r} not found")
+    if not index:
+        raise ValueError("select at least one index column")
+    agg_map = {
+        "first": "first",
+        "last": "last",
+        "sum": "sum",
+        "mean": "mean",
+        "min": "min",
+        "max": "max",
+        "count": "count",
+        "median": "median",
+    }
+    if agg not in agg_map:
+        raise ValueError(f"unknown aggregation {agg!r}")
+    on_cols = lf.select(pl.col(columns).unique()).collect()[columns]
+    return lf.pivot(
+        on=columns,
+        on_columns=on_cols,
+        index=index,
+        values=values,
+        aggregate_function=agg,
+    )
+
+
+def unpivot_frame(
+    lf: pl.LazyFrame,
+    id_vars: list[str],
+    value_vars: list[str] | None = None,
+    variable_name: str = "variable",
+    value_name: str = "value",
+) -> pl.LazyFrame:
+    """Unpivot (melt) *lf* from wide to long format.
+
+    *id_vars* are kept as identifier columns.  *value_vars* are the columns
+    to unpivot (defaults to all non-id columns).
+    """
+    names = set(lf.collect_schema().names())
+    missing = [c for c in id_vars if c not in names]
+    if missing:
+        raise ValueError(f"id column(s) not found: {', '.join(missing)}")
+    if value_vars:
+        missing = [c for c in value_vars if c not in names]
+        if missing:
+            raise ValueError(f"value column(s) not found: {', '.join(missing)}")
+    return lf.unpivot(
+        index=id_vars or None,
+        on=value_vars or None,
+        variable_name=variable_name,
+        value_name=value_name,
+    )
+
+
+def join_frames(
+    left: pl.LazyFrame,
+    right: pl.LazyFrame,
+    left_on: list[str],
+    right_on: list[str],
+    how: str = "inner",
+) -> pl.LazyFrame:
+    """Join *left* and *right* on the given key columns.
+
+    *how* is one of ``inner``, ``left``, ``right``, ``outer``, ``cross``.
+    """
+    if how not in ("inner", "left", "right", "outer", "cross"):
+        raise ValueError(f"unknown join type {how!r}")
+    lnames = set(left.collect_schema().names())
+    rnames = set(right.collect_schema().names())
+    lmiss = [c for c in left_on if c not in lnames]
+    rmiss = [c for c in right_on if c not in rnames]
+    if lmiss:
+        raise ValueError(f"left column(s) not found: {', '.join(lmiss)}")
+    if rmiss:
+        raise ValueError(f"right column(s) not found: {', '.join(rmiss)}")
+    if how == "cross":
+        return left.join(right, how="cross")
+    if len(left_on) != len(right_on):
+        raise ValueError("left and right key lists must have the same length")
+    return left.join(right, left_on=left_on, right_on=right_on, how=how)
+
+
 # ---------------------------------------------------------------------------
 # UI panel
 # ---------------------------------------------------------------------------
 class TransformPanel:
-    """Sort / rename / computed-column / group-by panel."""
+    """Sort / rename / computed-column / group-by / encode / pivot / unpivot / join panel."""
 
     def __init__(
         self,
@@ -412,6 +630,11 @@ class TransformPanel:
             None,
         ],
         on_group_by: Callable[[list[str], str | None, str, str], None],
+        on_one_hot: Callable[[str], None],
+        on_pivot: Callable[[list[str], str, str, str], None],
+        on_unpivot: Callable[[list[str], list[str], str, str], None],
+        on_join: Callable[[str, list[str], list[str], str], None],
+        dataset_names: list[str] | None = None,
     ) -> None:
         self._columns = columns
         self._col_names = [n for n, _ in columns]
@@ -419,6 +642,11 @@ class TransformPanel:
         self._on_rename = on_rename
         self._on_computed = on_computed
         self._on_group_by = on_group_by
+        self._on_one_hot = on_one_hot
+        self._on_pivot = on_pivot
+        self._on_unpivot = on_unpivot
+        self._on_join = on_join
+        self._dataset_names = dataset_names or []
 
         with parent:
             self._build_sort_section()
@@ -428,6 +656,14 @@ class TransformPanel:
             self._build_computed_section()
             ui.separator()
             self._build_group_by_section()
+            ui.separator()
+            self._build_one_hot_section()
+            ui.separator()
+            self._build_pivot_section()
+            ui.separator()
+            self._build_unpivot_section()
+            ui.separator()
+            self._build_join_section()
 
     # ---- 1. sort ----------------------------------------------------------
     def _build_sort_section(self) -> None:
@@ -679,6 +915,60 @@ class TransformPanel:
                         .classes("w-32")
                     )
 
+            elif cat == "datetime":
+                temporal = [n for n, d in self._columns if _is_temporal(d)]
+                with ui.row().classes("items-center gap-2 w-full"):
+                    self._comp_col_a = (
+                        ui.select(
+                            options={n: n for n in temporal} or {"—": "—"},
+                            value=temporal[0] if temporal else None,
+                            label="Datetime column",
+                        )
+                        .props("dense outlined")
+                        .classes("w-40")
+                    )
+
+            elif cat == "window":
+                with ui.row().classes("items-center gap-2 w-full"):
+                    self._comp_col_a = (
+                        ui.select(
+                            options={n: n for n in numeric} or {"—": "—"},
+                            value=numeric[0] if numeric else None,
+                            label="Source column",
+                        )
+                        .props("dense outlined")
+                        .classes("w-40")
+                    )
+                    is_rolling = op.startswith("rolling_")
+                    self._comp_scalar = (
+                        ui.input(
+                            value="3" if is_rolling else "1",
+                            label="Window size" if is_rolling else "Offset (n)",
+                        )
+                        .props("dense outlined")
+                        .classes("w-32")
+                    )
+
+            elif cat == "binning":
+                with ui.row().classes("items-center gap-2 w-full"):
+                    self._comp_col_a = (
+                        ui.select(
+                            options={n: n for n in numeric} or {"—": "—"},
+                            value=numeric[0] if numeric else None,
+                            label="Source column",
+                        )
+                        .props("dense outlined")
+                        .classes("w-40")
+                    )
+                    self._comp_scalar = (
+                        ui.input(
+                            value="5",
+                            label="Number of bins",
+                        )
+                        .props("dense outlined")
+                        .classes("w-32")
+                    )
+
     def _submit_computed(self) -> None:
         cat = self.comp_category.value or "arithmetic"
         op = self.comp_op.value or ""
@@ -775,3 +1065,229 @@ class TransformPanel:
         agg_op = self.gb_agg_op.value or "mean"
         out_name = self.gb_out_name.value or ""
         self._on_group_by(cols, agg_col, agg_op, out_name)
+
+    # ---- 5. one-hot encoding ----------------------------------------------
+    def _build_one_hot_section(self) -> None:
+        ui.label("One-hot encoding").classes("text-lg font-medium mt-2")
+        ui.label(
+            "Create one boolean column per unique value of a categorical column."
+        ).classes("text-xs opacity-50")
+        with ui.row().classes("items-center gap-2 w-full"):
+            self.oh_col = (
+                ui.select(
+                    options={n: n for n in self._col_names} or {"—": "—"},
+                    value=self._col_names[0] if self._col_names else None,
+                    label="Column",
+                )
+                .props("dense outlined")
+                .classes("w-40")
+            )
+            ui.button(
+                "Encode",
+                icon="grid_on",
+                on_click=lambda _=None: self._on_one_hot(self.oh_col.value or ""),
+            ).props("dense unelevated color=primary")
+
+    # ---- 6. pivot -----------------------------------------------------------
+    def _build_pivot_section(self) -> None:
+        ui.label("Pivot (wide)").classes("text-lg font-medium mt-2")
+        ui.label(
+            "Spread unique values of a column into new column headers."
+        ).classes("text-xs opacity-50")
+        with ui.row().classes("items-center gap-2 w-full flex-wrap"):
+            self.pv_index = (
+                ui.select(
+                    options={n: n for n in self._col_names} or {"—": "—"},
+                    multiple=True,
+                    value=[],
+                    clearable=True,
+                    label="Index columns",
+                )
+                .props("dense outlined use-chips")
+                .classes("w-56")
+            )
+            self.pv_columns = (
+                ui.select(
+                    options={n: n for n in self._col_names} or {"—": "—"},
+                    value=self._col_names[0] if self._col_names else None,
+                    label="Columns (spread)",
+                )
+                .props("dense outlined")
+                .classes("w-40")
+            )
+            self.pv_values = (
+                ui.select(
+                    options={n: n for n in self._col_names} or {"—": "—"},
+                    value=self._col_names[0] if self._col_names else None,
+                    label="Values",
+                )
+                .props("dense outlined")
+                .classes("w-40")
+            )
+            self.pv_agg = (
+                ui.select(
+                    {
+                        "first": "first",
+                        "last": "last",
+                        "sum": "sum",
+                        "mean": "mean",
+                        "min": "min",
+                        "max": "max",
+                        "count": "count",
+                        "median": "median",
+                    },
+                    value="first",
+                    label="Aggregation",
+                )
+                .props("dense outlined")
+                .classes("w-32")
+            )
+            ui.button(
+                "Pivot",
+                icon="pivot_table_chart",
+                on_click=lambda _=None: self._submit_pivot(),
+            ).props("dense unelevated color=primary")
+
+    def _submit_pivot(self) -> None:
+        index = list(self.pv_index.value or [])
+        if not index:
+            ui.notify("select at least one index column", type="warning", position="top")
+            return
+        self._on_pivot(
+            index,
+            self.pv_columns.value or "",
+            self.pv_values.value or "",
+            self.pv_agg.value or "first",
+        )
+
+    # ---- 7. unpivot (melt) --------------------------------------------------
+    def _build_unpivot_section(self) -> None:
+        ui.label("Unpivot (melt to long)").classes("text-lg font-medium mt-2")
+        ui.label(
+            "Reshape from wide to long format. ID columns stay; value "
+            "columns are stacked."
+        ).classes("text-xs opacity-50")
+        with ui.row().classes("items-center gap-2 w-full flex-wrap"):
+            self.up_id = (
+                ui.select(
+                    options={n: n for n in self._col_names} or {"—": "—"},
+                    multiple=True,
+                    value=[],
+                    clearable=True,
+                    label="ID columns (keep)",
+                )
+                .props("dense outlined use-chips")
+                .classes("w-56")
+            )
+            self.up_values = (
+                ui.select(
+                    options={n: n for n in self._col_names} or {"—": "—"},
+                    multiple=True,
+                    value=[],
+                    clearable=True,
+                    label="Value columns (stack, empty = all)",
+                )
+                .props("dense outlined use-chips")
+                .classes("w-56")
+            )
+            self.up_var_name = (
+                ui.input(
+                    value="variable",
+                    label="Variable name",
+                )
+                .props("dense outlined")
+                .classes("w-32")
+            )
+            self.up_val_name = (
+                ui.input(
+                    value="value",
+                    label="Value name",
+                )
+                .props("dense outlined")
+                .classes("w-32")
+            )
+            ui.button(
+                "Unpivot",
+                icon="unpublished",
+                on_click=lambda _=None: self._submit_unpivot(),
+            ).props("dense unelevated color=primary")
+
+    def _submit_unpivot(self) -> None:
+        id_vars = list(self.up_id.value or [])
+        value_vars = list(self.up_values.value or [])
+        self._on_unpivot(
+            id_vars,
+            value_vars,
+            self.up_var_name.value or "variable",
+            self.up_val_name.value or "value",
+        )
+
+    # ---- 8. join / merge ----------------------------------------------------
+    def _build_join_section(self) -> None:
+        ui.label("Join / merge datasets").classes("text-lg font-medium mt-2")
+        ui.label(
+            "Join the active dataset with another loaded dataset. "
+            "The result is saved as a new dataset."
+        ).classes("text-xs opacity-50")
+        others = [n for n in self._dataset_names]
+        with ui.row().classes("items-center gap-2 w-full flex-wrap"):
+            self.jn_other = (
+                ui.select(
+                    options={n: n for n in others} or {"—": "—"},
+                    value=others[0] if others else None,
+                    label="Other dataset",
+                )
+                .props("dense outlined")
+                .classes("w-40")
+            )
+            self.jn_left_on = (
+                ui.select(
+                    options={n: n for n in self._col_names} or {"—": "—"},
+                    multiple=True,
+                    value=[],
+                    clearable=True,
+                    label="Left key(s)",
+                )
+                .props("dense outlined use-chips")
+                .classes("w-48")
+            )
+            self.jn_right_on = (
+                ui.input(
+                    value="",
+                    label="Right key(s), comma-separated",
+                    placeholder="e.g. id, name",
+                )
+                .props("dense outlined")
+                .classes("w-48")
+            )
+            self.jn_how = (
+                ui.select(
+                    {
+                        "inner": "inner",
+                        "left": "left",
+                        "right": "right",
+                        "outer": "outer (full)",
+                        "cross": "cross (cartesian)",
+                    },
+                    value="inner",
+                    label="Join type",
+                )
+                .props("dense outlined")
+                .classes("w-36")
+            )
+            ui.button(
+                "Join",
+                icon="merge_type",
+                on_click=lambda _=None: self._submit_join(),
+            ).props("dense unelevated color=primary")
+
+    def _submit_join(self) -> None:
+        other = self.jn_other.value
+        if not other or other == "—":
+            ui.notify("select another dataset", type="warning", position="top")
+            return
+        left_on = list(self.jn_left_on.value or [])
+        right_raw = self.jn_right_on.value or ""
+        right_on = [s.strip() for s in right_raw.split(",") if s.strip()]
+        how = self.jn_how.value or "inner"
+        self._on_join(other, left_on, right_on, how)

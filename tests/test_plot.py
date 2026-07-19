@@ -142,3 +142,64 @@ def test_missing_column(df):
 def test_title_reflects_agg(df):
     fig = build_figure(df, PlotSpec(plot_type="bar", x="cat", y="y", agg="sum"))
     assert "sum of y" in fig["layout"]["title"]["text"]
+
+
+# ---------------------------------------------------------------------------
+# new plot types
+# ---------------------------------------------------------------------------
+def test_area_builds_trace(df):
+    fig = build_figure(df, PlotSpec(plot_type="area", x="x", y="y"))
+    t = _trace(fig)
+    assert t["type"] == "scatter"
+    assert t["fill"] == "tozeroy"
+
+
+def test_stacked_bar(df):
+    fig = build_figure(df, PlotSpec(plot_type="stacked_bar", x="cat", y="y", color="cat"))
+    assert fig["layout"]["barmode"] == "stack"
+
+
+def test_pie(df):
+    fig = build_figure(df, PlotSpec(plot_type="pie", x="cat", y="y"))
+    t = _trace(fig)
+    assert t["type"] == "pie"
+    assert t["hole"] == 0.4
+    assert len(t["labels"]) == 6
+
+
+def test_heatmap(df):
+    fig = build_figure(df, PlotSpec(plot_type="heatmap"))
+    t = _trace(fig)
+    assert t["type"] == "heatmap"
+    assert "x" in t and "y" in t
+    assert t["zmin"] == -1 and t["zmax"] == 1
+
+
+def test_heatmap_needs_two_numeric():
+    df = pl.DataFrame({"a": [1, 2], "s": ["x", "y"]})
+    with pytest.raises(ValueError, match="at least 2 numeric"):
+        build_figure(df, PlotSpec(plot_type="heatmap"))
+
+
+# ---------------------------------------------------------------------------
+# customisation
+# ---------------------------------------------------------------------------
+def test_log_axes(df):
+    fig = build_figure(df, PlotSpec(plot_type="scatter", x="x", y="y", log_x=True, log_y=True))
+    assert fig["layout"]["xaxis"]["type"] == "log"
+    assert fig["layout"]["yaxis"]["type"] == "log"
+
+
+def test_point_size(df):
+    fig = build_figure(df, PlotSpec(plot_type="scatter", x="x", y="y", point_size=12))
+    assert _trace(fig)["marker"]["size"] == 12
+
+
+def test_opacity(df):
+    fig = build_figure(df, PlotSpec(plot_type="scatter", x="x", y="y", opacity=0.5))
+    assert _trace(fig)["opacity"] == 0.5
+
+
+def test_opacity_not_set_when_full(df):
+    fig = build_figure(df, PlotSpec(plot_type="scatter", x="x", y="y", opacity=1.0))
+    assert "opacity" not in _trace(fig)
