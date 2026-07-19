@@ -37,6 +37,10 @@ _WRITERS: dict[str, Callable[[pl.DataFrame, str], None]] = {
     ".json": lambda df, p: df.write_ndjson(p),
     ".ndjson": lambda df, p: df.write_ndjson(p),
     ".ipc": lambda df, p: df.write_ipc(p),
+    ".avro": lambda df, p: df.write_avro(p),
+    ".xlsx": lambda df, p: df.write_excel(p),
+    ".feather": lambda df, p: df.write_ipc(p),
+    ".arrow": lambda df, p: df.write_ipc(p),
 }
 
 SUPPORTED_FORMATS = sorted(_WRITERS.keys())
@@ -77,6 +81,18 @@ def apply_selection(
     return lf
 
 
+def copy_to_clipboard(lf: pl.LazyFrame) -> None:
+    """Collect ``lf`` and copy it to the system clipboard as TSV."""
+    lf.collect().write_clipboard()
+
+
+def write_to_database(
+    lf: pl.LazyFrame, table_name: str, connection: str
+) -> None:
+    """Collect ``lf`` and write it to a database table."""
+    lf.collect().write_database(table_name, connection)
+
+
 # ---------------------------------------------------------------------------
 # UI panel
 # ---------------------------------------------------------------------------
@@ -100,11 +116,15 @@ class WritePanel:
         on_save_selection: Callable[[], None],
         on_export_dataset: Callable[[str, str], None],  # path, name-or-""
         on_export_selection: Callable[[str, str], None],  # path, name-or-""
+        on_copy_clipboard: Callable[[], None],
+        on_export_database: Callable[[str, str], None],  # connection, table
     ) -> None:
         self._on_save_edits = on_save_edits
         self._on_save_selection = on_save_selection
         self._on_export_dataset = on_export_dataset
         self._on_export_selection = on_export_selection
+        self._on_copy_clipboard = on_copy_clipboard
+        self._on_export_database = on_export_database
 
         with parent:
             # --- 1. Save edits (overwrite source file) ---
@@ -199,5 +219,55 @@ class WritePanel:
                     on_click=lambda _=None: self._on_export_selection(
                         self.export_sel_path.value or "",
                         self.export_sel_name.value or "",
+                    ),
+                ).props("dense unelevated color=primary")
+
+            ui.separator()
+
+            # --- 5. Copy to clipboard ---
+            ui.label("Copy to clipboard").classes("text-lg font-medium mt-2")
+            ui.label(
+                "Copy the active dataset to the system clipboard as "
+                "tab-separated text."
+            ).classes("text-xs opacity-50")
+            ui.button(
+                "Copy to clipboard",
+                icon="content_copy",
+                on_click=lambda _=None: self._on_copy_clipboard(),
+            ).props("dense unelevated color=primary")
+
+            ui.separator()
+
+            # --- 6. Export to database ---
+            ui.label("Export to database").classes("text-lg font-medium mt-2")
+            ui.label(
+                "Write the active dataset to a database table via a "
+                "connection URI."
+            ).classes("text-xs opacity-50")
+            with ui.row().classes("items-center gap-2 w-full"):
+                self.db_connection = (
+                    ui.input(
+                        value="",
+                        label="Connection URI",
+                        placeholder="e.g. postgresql://user:pass@host/db",
+                    )
+                    .props("dense outlined")
+                    .classes("w-64")
+                )
+                self.db_table = (
+                    ui.input(
+                        value="",
+                        label="Table name",
+                        placeholder="e.g. my_table",
+                    )
+                    .props("dense outlined")
+                    .classes("w-40")
+                )
+                ui.button(
+                    "Export to database",
+                    icon="storage",
+                    on_click=lambda _=None: self._on_export_database(
+                        self.db_connection.value or "",
+                        self.db_table.value or "",
                     ),
                 ).props("dense unelevated color=primary")

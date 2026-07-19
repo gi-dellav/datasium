@@ -8,7 +8,7 @@ import tempfile
 import polars as pl
 import pytest
 
-from datasium.write import apply_selection, save_frame
+from datasium.write import apply_selection, save_frame, copy_to_clipboard, write_to_database, SUPPORTED_FORMATS
 
 
 # ---------------------------------------------------------------------------
@@ -104,3 +104,79 @@ def test_apply_selection_both(lf):
 def test_apply_selection_empty_columns(lf):
     result = apply_selection(lf, columns=[])
     assert result.collect().shape == (3, 3)
+
+
+# ---------------------------------------------------------------------------
+# SUPPORTED_FORMATS
+# ---------------------------------------------------------------------------
+def test_supported_formats_include_new_entries():
+    for ext in (".avro", ".xlsx", ".feather", ".arrow"):
+        assert ext in SUPPORTED_FORMATS
+
+
+# ---------------------------------------------------------------------------
+# save_frame — new formats
+# ---------------------------------------------------------------------------
+def test_save_frame_avro(lf, df):
+    pytest.importorskip("fastavro")
+    with tempfile.TemporaryDirectory() as tmp:
+        path = os.path.join(tmp, "out.avro")
+        save_frame(lf, path)
+        roundtrip = pl.read_avro(path)
+        assert roundtrip.shape == df.shape
+        assert roundtrip.columns == df.columns
+
+
+def test_save_frame_xlsx(lf, df):
+    pytest.importorskip("xlsxwriter")
+    with tempfile.TemporaryDirectory() as tmp:
+        path = os.path.join(tmp, "out.xlsx")
+        save_frame(lf, path)
+        pytest.importorskip("fastexcel")
+        roundtrip = pl.read_excel(path)
+        assert roundtrip.shape == df.shape
+        assert roundtrip.columns == df.columns
+
+
+def test_save_frame_feather(lf, df):
+    with tempfile.TemporaryDirectory() as tmp:
+        path = os.path.join(tmp, "out.feather")
+        save_frame(lf, path)
+        roundtrip = pl.read_ipc(path)
+        assert roundtrip.shape == df.shape
+        assert roundtrip.columns == df.columns
+
+
+def test_save_frame_arrow(lf, df):
+    with tempfile.TemporaryDirectory() as tmp:
+        path = os.path.join(tmp, "out.arrow")
+        save_frame(lf, path)
+        roundtrip = pl.read_ipc(path)
+        assert roundtrip.shape == df.shape
+        assert roundtrip.columns == df.columns
+
+
+# ---------------------------------------------------------------------------
+# copy_to_clipboard
+# ---------------------------------------------------------------------------
+def test_copy_to_clipboard(lf, monkeypatch):
+    captured = {}
+    monkeypatch.setattr(
+        pl.DataFrame, "write_clipboard", lambda self: captured.update(data=self)
+    )
+    copy_to_clipboard(lf)
+    assert captured["data"].shape == (3, 3)
+
+
+# ---------------------------------------------------------------------------
+# write_to_database
+# ---------------------------------------------------------------------------
+def test_write_to_database(lf, monkeypatch):
+    calls = []
+    monkeypatch.setattr(
+        pl.DataFrame,
+        "write_database",
+        lambda self, table, conn: calls.append((table, conn)),
+    )
+    write_to_database(lf, "my_table", "sqlite://test.db")
+    assert calls == [("my_table", "sqlite://test.db")]

@@ -9,6 +9,13 @@ dependencies = [
     "polars>=1.42.1",
     "plotly>=5.0",
     "numpy>=2.2.6",
+    "fastavro>=1.9",
+    "fastexcel>=0.7",
+    "xlsxwriter>=3.2",
+    "connectorx>=0.4",
+    "adbc-driver-manager>=1.2",
+    "pyiceberg>=0.8",
+    "pyperclip>=1.9",
 ]
 
 [dependency-groups]

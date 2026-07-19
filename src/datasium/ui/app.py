@@ -18,7 +18,7 @@ from datasium.calculate import (
     _is_numeric as _is_numeric_dtype,
     compute_stat,
 )
-from datasium.dataset import Dataset, DatasetRegistry, UnsupportedFormatError
+from datasium.dataset import Dataset, DatasetRegistry, UnsupportedFormatError, SUPPORTED_READ_FORMATS
 from datasium.filter import FilterBuilder
 from datasium.query import QueryEntry, QueryPanel, run_sql
 from datasium.edit import (
@@ -45,7 +45,7 @@ from datasium.transform import (
     sort_frame,
     unpivot_frame,
 )
-from datasium.write import WritePanel, save_frame, apply_selection
+from datasium.write import WritePanel, save_frame, apply_selection, copy_to_clipboard, write_to_database, SUPPORTED_FORMATS
 
 import polars as pl
 
@@ -156,6 +156,9 @@ class App:
         self.load_container.clear()
         with self.load_container:
             ui.label("Load dataset").classes("text-lg font-medium")
+            ui.label(
+                f"Supported file formats: {', '.join(SUPPORTED_READ_FORMATS)}"
+            ).classes("text-xs opacity-50")
             ui.separator()
             ui.upload(
                 label="Choose a file",
@@ -168,11 +171,106 @@ class App:
                     position="top",
                 ),
             ).props(
-                'accept=".csv,.tsv,.psv,.parquet,.json,.ndjson,.ipc,.arrow,.feather" '
+                'accept=".csv,.tsv,.psv,.parquet,.json,.ndjson,.ipc,.arrow,'
+                '.feather,.avro,.xlsx,.xls,.ods" '
                 'color="primary"'
             ).classes(
                 "w-full"
             )
+
+            ui.separator()
+
+            # --- Clipboard import ---
+            ui.label("Paste from clipboard").classes("text-lg font-medium mt-2")
+            ui.label(
+                "Read tab-separated data from the system clipboard."
+            ).classes("text-xs opacity-50")
+            with ui.row().classes("items-center gap-2"):
+                self.clipboard_name = (
+                    ui.input(value="", label="Dataset name (optional)")
+                    .props("dense outlined")
+                    .classes("w-40")
+                )
+                ui.button(
+                    "Paste",
+                    icon="content_paste",
+                    on_click=self._on_load_clipboard,
+                ).props("dense unelevated color=primary")
+
+            ui.separator()
+
+            # --- Database import ---
+            ui.label("Load from database").classes("text-lg font-medium mt-2")
+            ui.label(
+                "Run a SQL query against a database via a connection URI "
+                "(requires connectorx)."
+            ).classes("text-xs opacity-50")
+            with ui.row().classes("items-center gap-2 w-full"):
+                self.db_uri = (
+                    ui.input(
+                        value="",
+                        label="Connection URI",
+                        placeholder="e.g. postgresql://user:pass@host/db",
+                    )
+                    .props("dense outlined")
+                    .classes("w-64")
+                )
+                self.db_query = (
+                    ui.input(
+                        value="",
+                        label="SQL query",
+                        placeholder="e.g. SELECT * FROM my_table",
+                    )
+                    .props("dense outlined")
+                    .classes("w-64")
+                )
+                self.db_load_name = (
+                    ui.input(value="", label="Dataset name (optional)")
+                    .props("dense outlined")
+                    .classes("w-40")
+                )
+                ui.button(
+                    "Load",
+                    icon="storage",
+                    on_click=self._on_load_database,
+                ).props("dense unelevated color=primary")
+
+            ui.separator()
+
+            # --- Iceberg import ---
+            ui.label("Load from Iceberg").classes("text-lg font-medium mt-2")
+            ui.label(
+                "Read an Apache Iceberg table (requires pyiceberg)."
+            ).classes("text-xs opacity-50")
+            with ui.row().classes("items-center gap-2 w-full"):
+                self.iceberg_catalog = (
+                    ui.input(
+                        value="default",
+                        label="Catalog name",
+                    )
+                    .props("dense outlined")
+                    .classes("w-40")
+                )
+                self.iceberg_table = (
+                    ui.input(
+                        value="",
+                        label="Table identifier",
+                        placeholder="e.g. namespace.table_name",
+                    )
+                    .props("dense outlined")
+                    .classes("w-64")
+                )
+                self.iceberg_name = (
+                    ui.input(value="", label="Dataset name (optional)")
+                    .props("dense outlined")
+                    .classes("w-40")
+                )
+                ui.button(
+                    "Load",
+                    icon="ice_skating",
+                    on_click=self._on_load_iceberg,
+                ).props("dense unelevated color=primary")
+
             ui.separator()
             self.list_container = ui.column().classes("w-full gap-1")
             self._render_list()
@@ -949,12 +1047,17 @@ class App:
                         "save the selection into the current dataset, or export "
                         "as a new file / dataset."
                     ).classes("text-xs opacity-50")
+            ui.label(
+                f"Supported export formats: {', '.join(SUPPORTED_FORMATS)}"
+            ).classes("text-xs opacity-50")
             self.write_panel = WritePanel(
                 self.write_container,
                 on_save_edits=self._on_write_save_edits,
                 on_save_selection=self._on_write_save_selection,
                 on_export_dataset=self._on_write_export_dataset,
                 on_export_selection=self._on_write_export_selection,
+                on_copy_clipboard=self._on_write_copy_clipboard,
+                on_export_database=self._on_write_export_database,
             )
 
     def _on_write_save_edits(self) -> None:
@@ -1035,6 +1138,31 @@ class App:
             )
             self.active_name = new_ds.name
             self._render_list()
+
+    def _on_write_copy_clipboard(self) -> None:
+        ds = self.registry.get(self.active_name) if self.active_name else None
+        if ds is None:
+            ui.notify("No active dataset", type="warning", position="top")
+            return
+        try:
+            copy_to_clipboard(ds.lazyframe)
+            ui.notify("Copied to clipboard", type="positive", position="top")
+        except Exception as err:
+            ui.notify(f"Could not copy to clipboard: {err}", type="negative", position="top")
+
+    def _on_write_export_database(self, connection: str, table: str) -> None:
+        ds = self.registry.get(self.active_name) if self.active_name else None
+        if ds is None:
+            ui.notify("No active dataset", type="warning", position="top")
+            return
+        if not connection.strip() or not table.strip():
+            ui.notify("Enter a connection URI and table name", type="warning", position="top")
+            return
+        try:
+            write_to_database(ds.lazyframe, table.strip(), connection.strip())
+            ui.notify(f"Exported to {table.strip()}", type="positive", position="top")
+        except Exception as err:
+            ui.notify(f"Could not export to database: {err}", type="negative", position="top")
 
     # ------------------------------------------------------------- query tab
     def _render_query_tab(self) -> None:
@@ -1252,6 +1380,46 @@ class App:
             ui.notify(str(err), type="warning", position="top")
         except Exception as err:  # polars read errors, malformed files, ...
             ui.notify(f"Could not read dataset: {err}", type="negative", position="top")
+
+    def _activate_loaded(self, ds: Dataset) -> None:
+        self.active_name = ds.name
+        self._refresh_all_tabs()
+        self.tabs.set_value("Select")
+        ui.notify(f"Loaded {ds.name}", type="positive", position="top")
+
+    def _on_load_clipboard(self) -> None:
+        try:
+            name = self.clipboard_name.value or None
+            ds = self.registry.load_clipboard(name=name)
+            self._activate_loaded(ds)
+        except Exception as err:
+            ui.notify(f"Could not read clipboard: {err}", type="negative", position="top")
+
+    def _on_load_database(self) -> None:
+        uri = (self.db_uri.value or "").strip()
+        query = (self.db_query.value or "").strip()
+        if not uri or not query:
+            ui.notify("Enter a connection URI and SQL query", type="warning", position="top")
+            return
+        try:
+            name = self.db_load_name.value or None
+            ds = self.registry.load_database(query, uri, name=name)
+            self._activate_loaded(ds)
+        except Exception as err:
+            ui.notify(f"Could not load from database: {err}", type="negative", position="top")
+
+    def _on_load_iceberg(self) -> None:
+        table = (self.iceberg_table.value or "").strip()
+        if not table:
+            ui.notify("Enter a table identifier", type="warning", position="top")
+            return
+        try:
+            catalog = (self.iceberg_catalog.value or "default").strip()
+            name = self.iceberg_name.value or None
+            ds = self.registry.load_iceberg(table, catalog=catalog, name=name)
+            self._activate_loaded(ds)
+        except Exception as err:
+            ui.notify(f"Could not load Iceberg table: {err}", type="negative", position="top")
 
     def _on_remove(self) -> None:
         self.registry.remove(self.active_name)  # type: ignore[arg-type]

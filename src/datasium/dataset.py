@@ -47,7 +47,13 @@ _READERS = {
     ".ipc": pl.read_ipc,
     ".arrow": pl.read_ipc,
     ".feather": pl.read_ipc,
+    ".avro": pl.read_avro,
+    ".xlsx": pl.read_excel,
+    ".xls": pl.read_excel,
+    ".ods": pl.read_excel,
 }
+
+SUPPORTED_READ_FORMATS = sorted(_READERS.keys())
 
 
 def _read_frame(filename: str, raw: bytes) -> pl.LazyFrame:
@@ -103,6 +109,36 @@ class DatasetRegistry:
 
     def __iter__(self):
         return iter(self._items.values())
+
+    def load_clipboard(self, *, name: str | None = None) -> Dataset:
+        df = pl.read_clipboard()
+        label = self._unique(name or "clipboard")
+        dataset = Dataset(name=label, source="clipboard", lazyframe=df.lazy())
+        self._items[label] = dataset
+        return dataset
+
+    def load_database(
+        self, query: str, connection: str, *, name: str | None = None
+    ) -> Dataset:
+        df = pl.read_database(query, connection)
+        label = self._unique(name or "database")
+        dataset = Dataset(name=label, source=f"db:{connection}", lazyframe=df.lazy())
+        self._items[label] = dataset
+        return dataset
+
+    def load_iceberg(
+        self, table: str, *, catalog: str = "default", name: str | None = None
+    ) -> Dataset:
+        from pyiceberg.catalog import load_catalog
+
+        cat = load_catalog(catalog)
+        lf = pl.scan_iceberg(table, catalog=cat)
+        label = self._unique(name or table.rsplit(".", 1)[-1])
+        dataset = Dataset(
+            name=label, source=f"iceberg:{table}", lazyframe=lf
+        )
+        self._items[label] = dataset
+        return dataset
 
     def _unique(self, label: str) -> str:
         if label not in self._items:
