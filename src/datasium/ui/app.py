@@ -46,6 +46,7 @@ from datasium.transform import (
     unpivot_frame,
 )
 from datasium.cluster import ClusterPanel, run_clustering, build_cluster_figure
+from datasium.preprocess import PreprocessPanel, run_preprocess
 from datasium.write import WritePanel, save_frame, apply_selection, copy_to_clipboard, write_to_database, SUPPORTED_FORMATS
 
 import polars as pl
@@ -83,6 +84,8 @@ class App:
         self.plot_panel: PlotPanel | None = None
         self.cluster_panel: ClusterPanel | None = None
         self._cluster_result: pl.DataFrame | None = None
+        self.preprocess_panel: PreprocessPanel | None = None
+        self._preprocess_result: pl.DataFrame | None = None
         self.transform_panel: TransformPanel | None = None
         self.preview_limit_mode = "all"  # "all" | "first" | "random"
         self.preview_limit_n = 100
@@ -121,6 +124,7 @@ class App:
             ui.tab("Calculate", icon="functions")
             ui.tab("Plot", icon="show_chart")
             ui.tab("Cluster", icon="scatter_plot")
+            ui.tab("Preprocess", icon="science")
             ui.tab("Write", icon="save")
 
         with ui.tab_panels(self.tabs, value="Load").classes("w-full"):
@@ -154,6 +158,9 @@ class App:
             with ui.tab_panel("Cluster"):
                 self.cluster_container = ui.column().classes("w-full p-4")
                 self._render_cluster_tab()
+            with ui.tab_panel("Preprocess"):
+                self.preprocess_container = ui.column().classes("w-full p-4")
+                self._render_preprocess_tab()
             with ui.tab_panel("Write"):
                 self.write_container = ui.column().classes("w-full p-4")
                 self._render_write_tab()
@@ -743,6 +750,7 @@ class App:
         self._render_query_tab()
         self._render_plot_tab()
         self._render_cluster_tab()
+        self._render_preprocess_tab()
         self._render_write_tab()
 
     # ---------------------------------------------------------------- edit tab
@@ -1121,6 +1129,88 @@ class App:
         ar, ac = result.shape
         ui.notify(
             f"Cluster column {out_col!r} added · now {ar:,} row(s) × {ac} column(s)",
+            type="positive",
+            position="top",
+        )
+        self._refresh_all_tabs()
+
+    # --------------------------------------------------------- preprocess tab
+    def _render_preprocess_tab(self) -> None:
+        self.preprocess_container.clear()
+        self.preprocess_panel = None
+        self._preprocess_result = None
+        ds = self.registry.get(self.active_name) if self.active_name else None
+        if ds is None:
+            with self.preprocess_container:
+                with ui.column().classes(
+                    "w-full items-center justify-center py-16 gap-2"
+                ):
+                    ui.icon("science", size="48px").classes("opacity-30")
+                    ui.label("Load a dataset first").classes("opacity-60")
+            return
+
+        with self.preprocess_container:
+            with ui.row().classes("items-center justify-between w-full"):
+                with ui.column().classes("gap-0"):
+                    ui.label("Preprocess").classes("text-lg font-medium")
+                    ui.label(
+                        "Scikit-learn preprocessing, feature selection, "
+                        "decomposition, density estimation, and covariance "
+                        "estimation."
+                    ).classes("text-xs opacity-50")
+            self.preprocess_panel = PreprocessPanel(
+                self.preprocess_container,
+                ds.columns,
+                self._run_preprocess,
+                self._apply_preprocess,
+            )
+
+    def _run_preprocess(self, category: str) -> None:
+        if self.preprocess_panel is None:
+            return
+        ds = self.registry.get(self.active_name) if self.active_name else None
+        if ds is None:
+            return
+        spec = self.preprocess_panel.spec_for(category)
+        try:
+            lf = ds.lazyframe
+            expr = self.filter_builder.build_expr() if self.filter_builder else None
+            if expr is not None:
+                lf = lf.filter(expr)
+            df = lf.collect()
+            result = run_preprocess(df, spec)
+        except ValueError as err:
+            self._preprocess_result = None
+            self.preprocess_panel.set_meta(str(err))
+            self.preprocess_panel.render_error(str(err))
+            ui.notify(str(err), type="warning", position="top")
+            return
+        except Exception as err:
+            self._preprocess_result = None
+            msg = f"Could not run {category}: {err}"
+            self.preprocess_panel.set_meta(msg)
+            self.preprocess_panel.render_error(msg)
+            ui.notify(msg, type="negative", position="top")
+            return
+
+        self._preprocess_result = result
+        ar, ac = result.shape
+        self.preprocess_panel.set_meta(
+            f"{category} · {ar:,} row(s) × {ac} column(s) — preview below"
+        )
+        self.preprocess_panel.render_preview(result)
+
+    def _apply_preprocess(self) -> None:
+        ds = self.registry.get(self.active_name) if self.active_name else None
+        if ds is None or self._preprocess_result is None:
+            ui.notify("Run an operation first", type="warning", position="top")
+            return
+        result = self._preprocess_result
+        self.registry.replace(ds.name, result.lazy())
+        self.selected_columns = None
+        ar, ac = result.shape
+        ui.notify(
+            f"Preprocess applied · now {ar:,} row(s) × {ac} column(s)",
             type="positive",
             position="top",
         )
