@@ -42,6 +42,7 @@ from datasium.transform import (
     one_hot_encode,
     pivot_frame,
     rename_column,
+    resample_frame,
     sort_frame,
     unpivot_frame,
 )
@@ -543,6 +544,7 @@ class App:
                 on_pivot=self._on_transform_pivot,
                 on_unpivot=self._on_transform_unpivot,
                 on_join=self._on_transform_join,
+                on_resample=self._on_transform_resample,
                 dataset_names=[
                     n for n in self.registry.names() if n != self.active_name
                 ],
@@ -710,6 +712,40 @@ class App:
         ar, ac = df.shape
         ui.notify(
             f"Join → new dataset {unique!r} · {ar:,} row(s) × {ac} column(s)",
+            type="positive",
+            position="top",
+        )
+        self._refresh_all_tabs()
+
+    def _on_transform_resample(
+        self, time_col: str, every: str, agg_col: str | None, agg_op: str, out_name: str
+    ) -> None:
+        ds = self.registry.get(self.active_name) if self.active_name else None
+        if ds is None:
+            ui.notify("No active dataset", type="warning", position="top")
+            return
+        try:
+            new_lf = resample_frame(ds.lazyframe, time_col, every, agg_col, agg_op, out_name)
+            df = new_lf.collect()
+        except ValueError as err:
+            ui.notify(str(err), type="warning", position="top")
+            return
+        except Exception as err:
+            ui.notify(f"Could not resample: {err}", type="negative", position="top")
+            return
+        base = self.active_name or "dataset"
+        label = f"{base}_resampled"
+        from datasium.dataset import Dataset
+
+        unique = self.registry._unique(label)
+        new_ds = Dataset(
+            name=unique, source=f"resample({base}, {every})", lazyframe=df.lazy()
+        )
+        self.registry._items[unique] = new_ds
+        self.active_name = unique
+        ar, ac = df.shape
+        ui.notify(
+            f"Resample → new dataset {unique!r} · {ar:,} row(s) × {ac} column(s)",
             type="positive",
             position="top",
         )
@@ -946,6 +982,7 @@ class App:
         if ds is None:
             return
         col = self.calculator.column
+        col_b = self.calculator.column_b
         op = self.calculator.operation
         if col is None or op is None:
             self.calculator.set_error("select a column and operation")
@@ -955,9 +992,13 @@ class App:
             expr = self.filter_builder.build_expr() if self.filter_builder else None
             if expr is not None:
                 lf = lf.filter(expr)
-            df = lf.select(col).collect()
+            cols_to_select = [col]
+            if col_b:
+                cols_to_select.append(col_b)
+            df = lf.select(cols_to_select).collect()
             series = df[col]
-            value = compute_stat(series, op, self.calculator.threshold)
+            series_b = df[col_b] if col_b else None
+            value = compute_stat(series, op, self.calculator.threshold, series_b)
         except ValueError as err:
             self.calculator.set_error(str(err))
             ui.notify(str(err), type="warning", position="top")

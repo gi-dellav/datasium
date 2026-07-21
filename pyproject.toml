@@ -10,6 +10,7 @@ dependencies = [
     "plotly>=5.0",
     "numpy>=2.2.6",
     "scikit-learn>=1.6",
+    "scipy>=1.14",
     "fastavro>=1.9",
     "fastexcel>=0.7",
     "xlsxwriter>=3.2",

@@ -456,6 +456,9 @@ dependencies = [
     { name = "pyperclip" },
     { name = "scikit-learn", version = "1.7.2", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
     { name = "scikit-learn", version = "1.9.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11'" },
+    { name = "scipy", version = "1.15.3", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
+    { name = "scipy", version = "1.17.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version == '3.11.*'" },
+    { name = "scipy", version = "1.18.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.12'" },
     { name = "xlsxwriter" },
 ]
 
@@ -477,6 +480,7 @@ requires-dist = [
     { name = "pyiceberg", specifier = ">=0.8" },
     { name = "pyperclip", specifier = ">=1.9" },
     { name = "scikit-learn", specifier = ">=1.6" },
+    { name = "scipy", specifier = ">=1.14" },
     { name = "xlsxwriter", specifier = ">=3.2" },
 ]
 

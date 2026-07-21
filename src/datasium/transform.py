@@ -110,6 +110,33 @@ BINNING_OPS: list[tuple[str, str]] = [
     ("equal-frequency bins", "bin_freq"),
 ]
 
+STAT_OPS: list[tuple[str, str]] = [
+    ("z-score (standardise)", "z_score"),
+    ("min-max normalise", "min_max"),
+    ("percentile rank", "pct_rank"),
+    ("log (natural)", "log"),
+    ("log₂", "log2"),
+    ("log₁₀", "log10"),
+    ("absolute value", "abs"),
+    ("sign (−1 / 0 / +1)", "sign"),
+    ("clip (clamp to range)", "clip"),
+    ("winsorise (clip at percentiles)", "winsorize"),
+    ("empirical CDF", "ecdf"),
+    ("round", "round"),
+    ("square root", "sqrt"),
+    ("negate", "negate"),
+]
+
+TS_OPS: list[tuple[str, str]] = [
+    ("percent change", "pct_change"),
+    ("exponential moving avg (EMA)", "ema"),
+    ("detrend (subtract linear trend)", "detrend"),
+    ("seasonal difference", "seasonal_diff"),
+    ("rolling std dev", "rolling_std"),
+    ("rolling median", "rolling_median"),
+    ("date difference (days)", "date_diff"),
+]
+
 CATEGORY_OPS: dict[str, list[tuple[str, str]]] = {
     "arithmetic": ARITH_OPS,
     "aggregation": AGG_OPS,
@@ -120,6 +147,8 @@ CATEGORY_OPS: dict[str, list[tuple[str, str]]] = {
     "datetime": DATETIME_OPS,
     "window": WINDOW_OPS,
     "binning": BINNING_OPS,
+    "statistical": STAT_OPS,
+    "time series": TS_OPS,
 }
 
 CATEGORY_LABELS: dict[str, str] = {
@@ -132,6 +161,8 @@ CATEGORY_LABELS: dict[str, str] = {
     "datetime": "Datetime extraction (year, month, day, …)",
     "window": "Window (lag, lead, diff, rolling …)",
     "binning": "Binning (discretise a numeric column)",
+    "statistical": "Statistical transform (z-score, normalise, log, …)",
+    "time series": "Time series (pct change, EMA, detrend, …)",
 }
 
 
@@ -415,6 +446,101 @@ def add_computed_column(
         else:
             raise ValueError(f"unknown binning op {op!r}")
 
+    # ---- statistical transforms ----
+    elif category == "statistical":
+        if not col_a:
+            raise ValueError("select a source column")
+        a = _num(col_a)
+        if op == "z_score":
+            expr = (a - a.mean()) / a.std()
+        elif op == "min_max":
+            expr = (a - a.min()) / (a.max() - a.min())
+        elif op == "pct_rank":
+            expr = a.rank() / a.count() * 100
+        elif op == "log":
+            expr = a.log()
+        elif op == "log2":
+            expr = a.log(base=2)
+        elif op == "log10":
+            expr = a.log(base=10)
+        elif op == "abs":
+            expr = a.abs()
+        elif op == "sign":
+            expr = a.sign()
+        elif op == "clip":
+            parts = [v.strip() for v in (scalar or "").split(",")]
+            if len(parts) != 2:
+                raise ValueError("clip needs two comma-separated values, e.g. '0, 100'")
+            try:
+                lo_val, hi_val = float(parts[0]), float(parts[1])
+            except ValueError:
+                raise ValueError(f"could not parse clip range from {scalar!r}")
+            expr = a.clip(lo_val, hi_val)
+        elif op == "winsorize":
+            parts = [v.strip() for v in (scalar or "").split(",")]
+            if len(parts) != 2:
+                raise ValueError(
+                    "winsorise needs two comma-separated percentiles, e.g. '5, 95'"
+                )
+            try:
+                lo_pct, hi_pct = float(parts[0]) / 100, float(parts[1]) / 100
+            except ValueError:
+                raise ValueError(f"could not parse percentiles from {scalar!r}")
+            lo_q = a.quantile(lo_pct)
+            hi_q = a.quantile(hi_pct)
+            expr = a.clip(lo_q, hi_q)
+        elif op == "ecdf":
+            expr = a.rank() / a.count()
+        elif op == "round":
+            n_dec = int(_scalar_f64(scalar)) if scalar and scalar.strip() else 0
+            expr = a.round(n_dec)
+        elif op == "sqrt":
+            expr = a.sqrt()
+        elif op == "negate":
+            expr = -a
+        else:
+            raise ValueError(f"unknown statistical op {op!r}")
+
+    # ---- time series transforms ----
+    elif category == "time series":
+        if op == "date_diff":
+            if not col_a or not col_b:
+                raise ValueError("select two date/time columns for date difference")
+            a_col = _col(col_a)
+            b_col = _col(col_b)
+            if not _is_temporal(schema[col_a]) or not _is_temporal(schema[col_b]):
+                raise ValueError("both columns must be date/time for date difference")
+            expr = (b_col - a_col).dt.total_days()
+        else:
+            if not col_a:
+                raise ValueError("select a source column")
+            a = _num(col_a)
+            n = int(_scalar_f64(scalar)) if scalar and scalar.strip() else 1
+            if op == "pct_change":
+                expr = a.pct_change()
+            elif op == "ema":
+                span = max(1, n)
+                expr = a.ewm_mean(span=span)
+            elif op == "detrend":
+                x = pl.int_range(0, pl.len()).cast(pl.Float64)
+                n_f = pl.len().cast(pl.Float64)
+                sum_x = x.sum()
+                sum_y = a.sum()
+                sum_xy = (x * a).sum()
+                sum_x2 = (x * x).sum()
+                slope = (n_f * sum_xy - sum_x * sum_y) / (n_f * sum_x2 - sum_x * sum_x)
+                intercept = (sum_y - slope * sum_x) / n_f
+                expr = a - (slope * x + intercept)
+            elif op == "seasonal_diff":
+                period = max(1, n)
+                expr = a - a.shift(period)
+            elif op == "rolling_std":
+                expr = a.rolling_std(max(1, n))
+            elif op == "rolling_median":
+                expr = a.rolling_median(max(1, n))
+            else:
+                raise ValueError(f"unknown time series op {op!r}")
+
     else:
         raise ValueError(f"unknown category {category!r}")
 
@@ -612,6 +738,61 @@ def join_frames(
     return left.join(right, left_on=left_on, right_on=right_on, how=how)
 
 
+def resample_frame(
+    lf: pl.LazyFrame,
+    time_col: str,
+    every: str,
+    agg_col: str | None,
+    agg_op: str,
+    output_name: str,
+) -> pl.LazyFrame:
+    """Resample a time-indexed frame by grouping into fixed-frequency windows.
+
+    *time_col* must be a Date or Datetime column.  *every* is a Polars
+    duration string such as ``"1d"``, ``"1w"``, ``"1mo"``, ``"1h"``.
+    *agg_col* is aggregated with *agg_op* inside each window; when *agg_op*
+    is ``"count"`` the *agg_col* may be ``None``.
+
+    Returns a new (smaller) LazyFrame sorted by *time_col*.
+    """
+    names = set(lf.collect_schema().names())
+    if time_col not in names:
+        raise ValueError(f"time column {time_col!r} not found")
+    schema = dict(lf.collect_schema().items())
+    if not _is_temporal(schema[time_col]):
+        raise ValueError(f"column {time_col!r} is not a date/time column")
+    if not output_name or not output_name.strip():
+        raise ValueError("enter a name for the aggregated column")
+
+    if agg_op == "count":
+        agg_expr = pl.len().alias(output_name)
+    else:
+        if not agg_col:
+            raise ValueError("select a column to aggregate")
+        if agg_col not in names:
+            raise ValueError(f"column {agg_col!r} not found")
+        col = pl.col(agg_col)
+        agg_map = {
+            "sum": col.sum,
+            "mean": col.mean,
+            "min": col.min,
+            "max": col.max,
+            "median": col.median,
+            "std": col.std,
+            "first": col.first,
+            "last": col.last,
+        }
+        if agg_op not in agg_map:
+            raise ValueError(f"unknown aggregation {agg_op!r}")
+        agg_expr = agg_map[agg_op]().alias(output_name)
+
+    return (
+        lf.sort(time_col)
+        .group_by_dynamic(time_col, every=every)
+        .agg(agg_expr)
+    )
+
+
 # ---------------------------------------------------------------------------
 # UI panel
 # ---------------------------------------------------------------------------
@@ -634,6 +815,7 @@ class TransformPanel:
         on_pivot: Callable[[list[str], str, str, str], None],
         on_unpivot: Callable[[list[str], list[str], str, str], None],
         on_join: Callable[[str, list[str], list[str], str], None],
+        on_resample: Callable[[str, str, str | None, str, str], None] | None = None,
         dataset_names: list[str] | None = None,
     ) -> None:
         self._columns = columns
@@ -646,6 +828,7 @@ class TransformPanel:
         self._on_pivot = on_pivot
         self._on_unpivot = on_unpivot
         self._on_join = on_join
+        self._on_resample = on_resample
         self._dataset_names = dataset_names or []
 
         with parent:
@@ -665,6 +848,8 @@ class TransformPanel:
                 self._build_unpivot_section()
             with ui.expansion("Join / merge datasets", icon="merge_type").classes("w-full"):
                 self._build_join_section()
+            with ui.expansion("Resample (time-based)", icon="schedule").classes("w-full"):
+                self._build_resample_section()
 
     # ---- 1. sort ----------------------------------------------------------
     def _build_sort_section(self) -> None:
@@ -966,6 +1151,77 @@ class TransformPanel:
                         .props("dense outlined")
                         .classes("w-32")
                     )
+
+            elif cat == "statistical":
+                with ui.row().classes("items-center gap-2 w-full flex-wrap"):
+                    self._comp_col_a = (
+                        ui.select(
+                            options={n: n for n in numeric} or {"—": "—"},
+                            value=numeric[0] if numeric else None,
+                            label="Source column",
+                        )
+                        .props("dense outlined")
+                        .classes("w-40")
+                    )
+                    if op in ("clip", "winsorize"):
+                        placeholder = (
+                            "lo, hi" if op == "clip" else "lo %, hi % (e.g. 5, 95)"
+                        )
+                        self._comp_scalar = (
+                            ui.input(value="", label=placeholder)
+                            .props("dense outlined")
+                            .classes("w-40")
+                        )
+                    elif op == "round":
+                        self._comp_scalar = (
+                            ui.input(value="0", label="Decimal places")
+                            .props("dense outlined")
+                            .classes("w-32")
+                        )
+
+            elif cat == "time series":
+                temporal = [n for n, d in self._columns if _is_temporal(d)]
+                with ui.row().classes("items-center gap-2 w-full flex-wrap"):
+                    if op == "date_diff":
+                        self._comp_col_a = (
+                            ui.select(
+                                options={n: n for n in temporal} or {"—": "—"},
+                                value=temporal[0] if temporal else None,
+                                label="Start date column",
+                            )
+                            .props("dense outlined")
+                            .classes("w-44")
+                        )
+                        self._comp_col_b = (
+                            ui.select(
+                                options={n: n for n in temporal} or {"—": "—"},
+                                value=temporal[1] if len(temporal) > 1 else (temporal[0] if temporal else None),
+                                label="End date column",
+                            )
+                            .props("dense outlined")
+                            .classes("w-44")
+                        )
+                    else:
+                        self._comp_col_a = (
+                            ui.select(
+                                options={n: n for n in numeric} or {"—": "—"},
+                                value=numeric[0] if numeric else None,
+                                label="Source column",
+                            )
+                            .props("dense outlined")
+                            .classes("w-40")
+                        )
+                        if op in ("ema", "seasonal_diff", "rolling_std", "rolling_median"):
+                            default = "3" if op.startswith("rolling") else ("1" if op == "seasonal_diff" else "10")
+                            label = (
+                                "Window size" if op.startswith("rolling")
+                                else ("Period" if op == "seasonal_diff" else "Span")
+                            )
+                            self._comp_scalar = (
+                                ui.input(value=default, label=label)
+                                .props("dense outlined")
+                                .classes("w-32")
+                            )
 
     def _submit_computed(self) -> None:
         cat = self.comp_category.value or "arithmetic"
@@ -1284,3 +1540,93 @@ class TransformPanel:
         right_on = [s.strip() for s in right_raw.split(",") if s.strip()]
         how = self.jn_how.value or "inner"
         self._on_join(other, left_on, right_on, how)
+
+    # ---- 9. resample (time-based) -------------------------------------------
+    def _build_resample_section(self) -> None:
+        ui.label(
+            "Aggregate a time-indexed dataset into fixed-frequency windows. "
+            "Produces a new dataset."
+        ).classes("text-xs opacity-50")
+        temporal = [n for n, d in self._columns if _is_temporal(d)]
+        numeric = [n for n, d in self._columns if _is_numeric(d)]
+        with ui.row().classes("items-center gap-2 w-full flex-wrap"):
+            self.rs_time_col = (
+                ui.select(
+                    options={n: n for n in temporal} or {"—": "—"},
+                    value=temporal[0] if temporal else None,
+                    label="Time column",
+                )
+                .props("dense outlined")
+                .classes("w-40")
+            )
+            self.rs_every = (
+                ui.select(
+                    {
+                        "1h": "hourly",
+                        "1d": "daily",
+                        "1w": "weekly",
+                        "1mo": "monthly",
+                        "1q": "quarterly",
+                        "1y": "yearly",
+                    },
+                    value="1d",
+                    label="Frequency",
+                )
+                .props("dense outlined")
+                .classes("w-36")
+            )
+            self.rs_agg_col = (
+                ui.select(
+                    options={n: n for n in numeric} or {"—": "—"},
+                    value=numeric[0] if numeric else None,
+                    clearable=True,
+                    label="Aggregate column",
+                )
+                .props("dense outlined")
+                .classes("w-40")
+            )
+            self.rs_agg_op = (
+                ui.select(
+                    {
+                        "mean": "mean",
+                        "sum": "sum",
+                        "min": "min",
+                        "max": "max",
+                        "median": "median",
+                        "std": "std dev",
+                        "count": "count (rows)",
+                        "first": "first",
+                        "last": "last",
+                    },
+                    value="mean",
+                    label="Aggregation",
+                )
+                .props("dense outlined")
+                .classes("w-36")
+            )
+            self.rs_out_name = (
+                ui.input(
+                    value="",
+                    label="Output column name",
+                    placeholder="e.g. avg_value",
+                )
+                .props("dense outlined")
+                .classes("w-40")
+            )
+            ui.button(
+                "Resample",
+                icon="schedule",
+                on_click=lambda _=None: self._submit_resample(),
+            ).props("dense unelevated color=primary")
+
+    def _submit_resample(self) -> None:
+        time_col = self.rs_time_col.value
+        if not time_col or time_col == "—":
+            ui.notify("select a time column", type="warning", position="top")
+            return
+        every = self.rs_every.value or "1d"
+        agg_col = self.rs_agg_col.value
+        agg_op = self.rs_agg_op.value or "mean"
+        out_name = self.rs_out_name.value or ""
+        if self._on_resample is not None:
+            self._on_resample(time_col, every, agg_col, agg_op, out_name)

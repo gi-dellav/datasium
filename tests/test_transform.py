@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import math
+
 import polars as pl
 import pytest
 
@@ -12,6 +14,7 @@ from datasium.transform import (
     one_hot_encode,
     pivot_frame,
     rename_column,
+    resample_frame,
     sort_frame,
     unpivot_frame,
 )
@@ -813,3 +816,259 @@ def test_join_missing_left_col():
     right = pl.DataFrame({"k": [1]}).lazy()
     with pytest.raises(ValueError, match="left column"):
         join_frames(left, right, ["missing"], ["k"])
+
+
+# ---------------------------------------------------------------------------
+# statistical transforms
+# ---------------------------------------------------------------------------
+def test_z_score(lf):
+    out = add_computed_column(
+        lf, "z", "statistical", "z_score", col_a="age"
+    ).collect()
+    z = out["z"].to_list()
+    # mean of z-scores should be ~0
+    assert sum(z) / len(z) == pytest.approx(0.0, abs=1e-10)
+    # std of z-scores should be ~1
+    import math
+    std = math.sqrt(sum(v**2 for v in z) / (len(z) - 1))
+    assert std == pytest.approx(1.0, abs=1e-10)
+
+
+def test_min_max(lf):
+    out = add_computed_column(
+        lf, "mm", "statistical", "min_max", col_a="age"
+    ).collect()
+    vals = out["mm"].to_list()
+    assert min(vals) == pytest.approx(0.0)
+    assert max(vals) == pytest.approx(1.0)
+
+
+def test_pct_rank(lf):
+    out = add_computed_column(
+        lf, "pr", "statistical", "pct_rank", col_a="age"
+    ).collect()
+    vals = out["pr"].to_list()
+    assert all(0 < v <= 100 for v in vals)
+
+
+def test_log():
+    lf2 = pl.DataFrame({"x": [1.0, math.e, math.e**2]}).lazy()
+    out = add_computed_column(lf2, "ln", "statistical", "log", col_a="x").collect()
+    assert out["ln"].to_list() == pytest.approx([0.0, 1.0, 2.0])
+
+
+def test_log2():
+    lf2 = pl.DataFrame({"x": [1.0, 2.0, 4.0, 8.0]}).lazy()
+    out = add_computed_column(lf2, "l2", "statistical", "log2", col_a="x").collect()
+    assert out["l2"].to_list() == pytest.approx([0.0, 1.0, 2.0, 3.0])
+
+
+def test_log10():
+    lf2 = pl.DataFrame({"x": [1.0, 10.0, 100.0]}).lazy()
+    out = add_computed_column(lf2, "l10", "statistical", "log10", col_a="x").collect()
+    assert out["l10"].to_list() == pytest.approx([0.0, 1.0, 2.0])
+
+
+def test_abs():
+    lf2 = pl.DataFrame({"x": [-3, -1, 0, 2, 5]}).lazy()
+    out = add_computed_column(lf2, "a", "statistical", "abs", col_a="x").collect()
+    assert out["a"].to_list() == [3, 1, 0, 2, 5]
+
+
+def test_sign():
+    lf2 = pl.DataFrame({"x": [-5, 0, 3]}).lazy()
+    out = add_computed_column(lf2, "s", "statistical", "sign", col_a="x").collect()
+    assert out["s"].to_list() == [-1, 0, 1]
+
+
+def test_clip():
+    lf2 = pl.DataFrame({"x": [1, 5, 10, 15, 20]}).lazy()
+    out = add_computed_column(
+        lf2, "c", "statistical", "clip", col_a="x", scalar="5, 15"
+    ).collect()
+    assert out["c"].to_list() == [5, 5, 10, 15, 15]
+
+
+def test_clip_bad_input(lf):
+    with pytest.raises(ValueError, match="two comma-separated"):
+        add_computed_column(lf, "c", "statistical", "clip", col_a="age", scalar="5")
+
+
+def test_winsorize(lf):
+    out = add_computed_column(
+        lf, "w", "statistical", "winsorize", col_a="age", scalar="10, 90"
+    ).collect()
+    vals = out["w"].to_list()
+    # values should be clipped to the 10th and 90th percentiles
+    assert min(vals) >= 9  # min age is 9
+    assert max(vals) <= 55  # max age is 55
+
+
+def test_ecdf(lf):
+    out = add_computed_column(
+        lf, "ecdf", "statistical", "ecdf", col_a="age"
+    ).collect()
+    vals = out["ecdf"].to_list()
+    assert all(0 < v <= 1 for v in vals)
+
+
+def test_round():
+    lf2 = pl.DataFrame({"x": [1.234, 5.678, 9.012]}).lazy()
+    out = add_computed_column(
+        lf2, "r", "statistical", "round", col_a="x", scalar="1"
+    ).collect()
+    assert out["r"].to_list() == [1.2, 5.7, 9.0]
+
+
+def test_sqrt():
+    lf2 = pl.DataFrame({"x": [0.0, 1.0, 4.0, 9.0]}).lazy()
+    out = add_computed_column(lf2, "s", "statistical", "sqrt", col_a="x").collect()
+    assert out["s"].to_list() == pytest.approx([0.0, 1.0, 2.0, 3.0])
+
+
+def test_negate(lf):
+    out = add_computed_column(
+        lf, "neg", "statistical", "negate", col_a="age"
+    ).collect()
+    assert out["neg"].to_list() == [-30, -12, -40, -25, -55, -9, -33, -28]
+
+
+def test_statistical_rejects_non_numeric(lf):
+    with pytest.raises(ValueError, match="not numeric"):
+        add_computed_column(lf, "x", "statistical", "z_score", col_a="name")
+
+
+# ---------------------------------------------------------------------------
+# time series transforms
+# ---------------------------------------------------------------------------
+def test_pct_change(lf):
+    out = add_computed_column(
+        lf, "pc", "time series", "pct_change", col_a="age"
+    ).collect()
+    assert out["pc"][0] is None
+    # (12 - 30) / 30 = -0.6
+    assert out["pc"][1] == pytest.approx(-0.6)
+
+
+def test_ema(lf):
+    out = add_computed_column(
+        lf, "ema", "time series", "ema", col_a="age", scalar="3"
+    ).collect()
+    vals = out["ema"].to_list()
+    assert vals[0] == pytest.approx(30.0)  # first value is the first observation
+    assert len(vals) == 8
+
+
+def test_detrend(lf):
+    out = add_computed_column(
+        lf, "dt", "time series", "detrend", col_a="age"
+    ).collect()
+    vals = out["dt"].to_list()
+    # detrended values should have mean ~0
+    assert sum(vals) / len(vals) == pytest.approx(0.0, abs=1e-10)
+
+
+def test_seasonal_diff(lf):
+    out = add_computed_column(
+        lf, "sd", "time series", "seasonal_diff", col_a="age", scalar="2"
+    ).collect()
+    assert out["sd"][0] is None
+    assert out["sd"][1] is None
+    assert out["sd"][2] == 40 - 30  # age[2] - age[0]
+
+
+def test_rolling_std(lf):
+    out = add_computed_column(
+        lf, "rs", "time series", "rolling_std", col_a="age", scalar="3"
+    ).collect()
+    assert out["rs"][0] is None
+    assert out["rs"][1] is None
+    assert out["rs"][2] is not None
+
+
+def test_rolling_median(lf):
+    out = add_computed_column(
+        lf, "rm", "time series", "rolling_median", col_a="age", scalar="3"
+    ).collect()
+    assert out["rm"][0] is None
+    assert out["rm"][1] is None
+    assert out["rm"][2] == 30  # median of [30, 12, 40] = 30
+
+
+def test_date_diff():
+    from datetime import date
+
+    lf2 = pl.DataFrame(
+        {
+            "start": [date(2024, 1, 1), date(2024, 3, 1)],
+            "end": [date(2024, 1, 31), date(2024, 3, 15)],
+        }
+    ).lazy()
+    out = add_computed_column(
+        lf2, "days", "time series", "date_diff", col_a="start", col_b="end"
+    ).collect()
+    assert out["days"].to_list() == [30, 14]
+
+
+def test_date_diff_requires_temporal(lf):
+    with pytest.raises(ValueError, match="date/time"):
+        add_computed_column(
+            lf, "d", "time series", "date_diff", col_a="age", col_b="score"
+        )
+
+
+def test_ts_rejects_non_numeric(lf):
+    with pytest.raises(ValueError, match="not numeric"):
+        add_computed_column(lf, "x", "time series", "pct_change", col_a="name")
+
+
+# ---------------------------------------------------------------------------
+# resample_frame
+# ---------------------------------------------------------------------------
+def test_resample_daily():
+    from datetime import date
+
+    lf2 = pl.DataFrame(
+        {
+            "ts": [date(2024, 1, 1), date(2024, 1, 1), date(2024, 1, 2)],
+            "val": [10.0, 20.0, 30.0],
+        }
+    ).lazy()
+    out = resample_frame(lf2, "ts", "1d", "val", "mean", "avg_val").collect()
+    assert out.height == 2
+    assert "avg_val" in out.columns
+    day1 = out.filter(pl.col("ts") == date(2024, 1, 1))
+    assert day1["avg_val"].item() == pytest.approx(15.0)
+
+
+def test_resample_count():
+    from datetime import date
+
+    lf2 = pl.DataFrame(
+        {
+            "ts": [date(2024, 1, 1), date(2024, 1, 1), date(2024, 1, 2)],
+            "val": [10.0, 20.0, 30.0],
+        }
+    ).lazy()
+    out = resample_frame(lf2, "ts", "1d", None, "count", "n").collect()
+    assert out.height == 2
+    day1 = out.filter(pl.col("ts") == date(2024, 1, 1))
+    assert day1["n"].item() == 2
+
+
+def test_resample_requires_temporal(lf):
+    with pytest.raises(ValueError, match="not a date/time"):
+        resample_frame(lf, "age", "1d", "score", "mean", "x")
+
+
+def test_resample_unknown_col(lf):
+    with pytest.raises(ValueError, match="not found"):
+        resample_frame(lf, "bogus", "1d", "score", "mean", "x")
+
+
+def test_resample_no_output_name(lf):
+    from datetime import date
+
+    lf2 = pl.DataFrame({"ts": [date(2024, 1, 1)], "v": [1.0]}).lazy()
+    with pytest.raises(ValueError, match="enter a name"):
+        resample_frame(lf2, "ts", "1d", "v", "mean", "  ")
